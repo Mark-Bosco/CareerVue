@@ -7,8 +7,17 @@ import re
 import logging
 import json
 import os
+import time
 
 class EmailWatcher:
+    """
+    A class for watching and processing job-related emails.
+    
+    This class connects to an email server, fetches new emails,
+    interprets their content for job application information,
+    and updates a SQLite database with the extracted data.
+    """
+
     def __init__(self, email_address, password, imap_server):
         self.email_address = email_address
         self.password = password
@@ -18,22 +27,35 @@ class EmailWatcher:
         self.last_checked = self.load_last_checked_time()
 
     def setup_logging(self):
+        """Configure logging for the EmailWatcher."""
         logging.basicConfig(filename='email_watcher.log', level=logging.DEBUG,
                             format='%(asctime)s - %(levelname)s - %(message)s')
 
     def load_last_checked_time(self):
+        """
+        Load the last time emails were checked from a JSON file.
+
+        Returns:
+            datetime: The last checked time or 1 day ago if not available.
+        """
         if os.path.exists('last_checked.json'):
             with open('last_checked.json', 'r') as f:
                 data = json.load(f)
                 return datetime.datetime.fromisoformat(data['last_checked'])
-        return datetime.datetime.now() - datetime.timedelta(days=1)  # Default to 1 day ago
+        return datetime.datetime.now() - datetime.timedelta(days=1)
 
     def save_last_checked_time(self):
+        """Save the current time as the last checked time to a JSON file."""
         with open('last_checked.json', 'w') as f:
             json.dump({'last_checked': datetime.datetime.now().isoformat()}, f)
 
     def connect(self):
-        """Connect to the IMAP server."""
+        """
+        Connect to the IMAP server.
+
+        Returns:
+            bool: True if connection is successful, False otherwise.
+        """
         try:
             self.mail = imaplib.IMAP4_SSL(self.imap_server)
             self.mail.login(self.email_address, self.password)
@@ -50,7 +72,12 @@ class EmailWatcher:
             return False
 
     def fetch_new_emails(self):
-        """Fetch new emails from the inbox."""
+        """
+        Fetch new emails from the inbox since the last checked time.
+
+        Yields:
+            email.message.EmailMessage: Parsed email messages.
+        """
         try:
             self.mail.select('inbox')
             date_string = self.last_checked.strftime("%d-%b-%Y")
@@ -69,7 +96,12 @@ class EmailWatcher:
             logging.error(f"Unexpected error during fetch: {e}")
 
     def update_database(self, job_data):
-        """Update the job application database with the extracted information."""
+        """
+        Update the job application database with extracted information.
+
+        Args:
+            job_data (dict): Dictionary containing job application information.
+        """
         conn = sqlite3.connect("job_applications.db")
         cursor = conn.cursor()
 
@@ -102,9 +134,16 @@ class EmailWatcher:
         finally:
             conn.close()
 
-
     def parse_email(self, email_message):
-        """Parse an email message and extract relevant information."""
+        """
+        Parse an email message and extract relevant information.
+
+        Args:
+            email_message (email.message.EmailMessage): The email message to parse.
+
+        Returns:
+            dict: Parsed email data including subject, sender, date, and body.
+        """
         try:
             subject = self.decode_header(email_message.get("Subject", ""))
             sender = email.utils.parseaddr(email_message.get("From", ""))[1]
@@ -130,7 +169,15 @@ class EmailWatcher:
             return None
 
     def decode_header(self, header):
-        """Decode email header."""
+        """
+        Decode email header.
+
+        Args:
+            header (str): The header to decode.
+
+        Returns:
+            str: Decoded header string.
+        """
         try:
             decoded_header, encoding = decode_header(header)[0]
             if isinstance(decoded_header, bytes):
@@ -141,7 +188,15 @@ class EmailWatcher:
             return ""
 
     def decode_payload(self, part):
-        """Decode email payload."""
+        """
+        Decode email payload.
+
+        Args:
+            part (email.message.EmailMessage): The email part to decode.
+
+        Returns:
+            str: Decoded payload string.
+        """
         try:
             payload = part.get_payload(decode=True)
             charset = part.get_content_charset() or 'utf-8'
@@ -151,7 +206,15 @@ class EmailWatcher:
             return ""
     
     def interpret_email(self, email_data):
-        """Interpret the email content to determine if it's job-related and extract information."""
+        """
+        Interpret the email content to determine if it's job-related and extract information.
+
+        Args:
+            email_data (dict): Parsed email data.
+
+        Returns:
+            dict: Extracted job-related information or None if not job-related.
+        """
         keywords = ["application", "interview", "offer", "rejection", "job", "position"]
         
         if any(keyword in email_data["subject"].lower() for keyword in keywords) or \
@@ -183,7 +246,12 @@ class EmailWatcher:
         return None
 
     def run(self):
-        """Main method to run the email watcher."""
+        """
+        Main method to run the email watcher.
+
+        This method connects to the email server, fetches new emails,
+        interprets them, and updates the database with job-related information.
+        """
         if self.connect():
             try:
                 logging.info("Starting to fetch new emails")
@@ -216,6 +284,7 @@ class EmailWatcher:
             raise ConnectionError("Failed to connect to email server")
 
 if __name__ == "__main__":
+    # Example usage of the EmailWatcher class
     import json
     with open("email_config.json", "r") as f:
         config = json.load(f)

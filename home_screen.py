@@ -1,101 +1,14 @@
-import time
 import customtkinter as ctk
 import sqlite3
 from CTkMessagebox import CTkMessagebox
 from datetime import datetime
-import re
-from email_watcher import EmailWatcher
 import threading
 import json
 import os
-
-class NotesWindow(ctk.CTkToplevel):
-    """A window for displaying and editing job notes."""
-
-    def __init__(self, parent, job_id, notes):
-        super().__init__(parent)
-        self.title("Job Notes")
-        self.geometry("400x300")
-        self.parent = parent
-        self.job_id = job_id
-
-        # Configure grid
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        self.attributes('-topmost', True)  # Ensure window stays on top
-
-        # Create and place text box for notes
-        self.notes_entry = ctk.CTkTextbox(self, height=200)
-        self.notes_entry.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        self.notes_entry.insert(ctk.END, notes)
-
-        # Create and place save button
-        self.save_button = ctk.CTkButton(self, text="Save", command=self.save_notes)
-        self.save_button.grid(row=1, column=0, padx=10, pady=10)
-
-    def save_notes(self):
-        """Save the updated notes and close the window."""
-        new_notes = self.notes_entry.get("1.0", ctk.END).strip()
-        self.parent.update_job(self.job_id, "notes", new_notes)
-        self.destroy()
-
-class EmailConfigDialog(ctk.CTkToplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.parent = parent
-        self.title("Email Configuration")
-        self.geometry("400x250")
-        self.attributes('-topmost', True)
-
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(self, text="Email Address:").grid(row=0, column=0, padx=10, pady=10, sticky="e")
-        self.email_entry = ctk.CTkEntry(self)
-        self.email_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
-
-        ctk.CTkLabel(self, text="Password:").grid(row=1, column=0, padx=10, pady=10, sticky="e")
-        self.password_entry = ctk.CTkEntry(self, show="*")
-        self.password_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
-
-        ctk.CTkLabel(self, text="IMAP Server:").grid(row=2, column=0, padx=10, pady=10, sticky="e")
-        self.server_entry = ctk.CTkEntry(self)
-        self.server_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
-
-        self.save_button = ctk.CTkButton(self, text="Save", command=self.save_config)
-        self.save_button.grid(row=3, column=0, columnspan=2, padx=10, pady=20)
-
-        self.load_config()
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-    def load_config(self):
-        if os.path.exists("email_config.json"):
-            with open("email_config.json", "r") as f:
-                config = json.load(f)
-                self.email_entry.insert(0, config.get("email", ""))
-                self.server_entry.insert(0, config.get("imap_server", ""))
-
-    def save_config(self):
-        email = self.email_entry.get()
-        password = self.password_entry.get()
-        server = self.server_entry.get()
-
-        if email and password and server:
-            config = {
-                "email": email,
-                "password": password,
-                "imap_server": server
-            }
-            with open("email_config.json", "w") as f:
-                json.dump(config, f)
-            self.parent.after(100, self.parent.start_email_watcher)  # Defer the start of email watcher
-            self.on_closing()
-        else:
-            CTkMessagebox(title="Error", message="Please fill in all fields.", icon="cancel")
-
-    def on_closing(self):
-        self.grab_release()
-        self.destroy()
+import time
+from email_watcher import EmailWatcher
+from notes_window import NotesWindow
+from email_config_dialog import EmailConfigDialog
 
 class HomeScreen(ctk.CTk):
     """The main application window for the job tracker."""
@@ -110,20 +23,18 @@ class HomeScreen(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
+        # Initialize variables
+        self.job_rows = {}  # Store references to job rows
+        self.next_row = 1  # Start job rows from row 1 (after headers)
+        self.email_watcher = None
+        self.email_watcher_thread = None
+
+        # Set up UI components
         self.setup_top_frame()
         self.setup_main_frame()
         self.setup_jobs_frame()
 
-        self.job_rows = {}  # Store references to job rows
-        self.next_row = 1  # Start job rows from row 1 (after headers)
-
-        self.email_watcher = None
-        self.email_watcher_thread = None
-
-        # Add email configuration button
-        self.email_config_button = ctk.CTkButton(self.top_frame, text="Email Config", command=self.open_email_config)
-        self.email_config_button.grid(row=0, column=1, padx=10, pady=10)
-
+        # Refresh job list
         self.refresh_jobs()
 
     def setup_top_frame(self):
@@ -143,47 +54,6 @@ class HomeScreen(ctk.CTk):
 
         self.add_job_button = ctk.CTkButton(self.top_frame, text="+", width=40, font=("Arial", 20), command=self.add_new_job)
         self.add_job_button.grid(row=0, column=3, padx=10, pady=10, sticky="e")
-
-    def refresh_emails_and_jobs(self):
-        """Refresh emails and update the job list."""
-        if self.email_watcher:
-            try:
-                self.email_watcher.run()
-                self.refresh_jobs()
-                CTkMessagebox(title="Success", message="Emails checked and jobs refreshed!", icon="info")
-            except Exception as e:
-                print(f"Error refreshing emails: {e}")
-                CTkMessagebox(title="Error", message="Failed to refresh emails. Please try again.", icon="cancel")
-        else:
-            CTkMessagebox(title="Error", message="Email watcher not configured. Please set up email configuration first.", icon="cancel")
-
-    def start_email_watcher(self):
-        if os.path.exists("email_config.json"):
-            with open("email_config.json", "r") as f:
-                config = json.load(f)
-            
-            self.email_watcher = EmailWatcher(config["email"], config["password"], config["imap_server"])
-            
-            # Test connection before starting the thread
-            if self.email_watcher.connect():
-                self.email_watcher_thread = threading.Thread(target=self.run_email_watcher, daemon=True)
-                self.email_watcher_thread.start()
-                CTkMessagebox(title="Success", message="Email watcher started successfully!", icon="info")
-            else:
-                CTkMessagebox(title="Error", message="Failed to connect to email server. Please check your credentials and try again.", icon="cancel")
-        else:
-            CTkMessagebox(title="Error", message="Email configuration not found.", icon="cancel")
-
-    def run_email_watcher(self):
-        while True:
-            try:
-                self.email_watcher.run()
-                # Sleep for 5 minutes before checking again
-                time.sleep(300)
-            except Exception as e:
-                print(f"Error in email watcher: {e}")
-                # Sleep for 1 minute before retrying
-                time.sleep(60)
 
     def setup_main_frame(self):
         """Set up the main frame that will contain the jobs list."""
@@ -206,6 +76,49 @@ class HomeScreen(ctk.CTk):
             label.grid(row=0, column=i, padx=5, pady=(5, 10), sticky="ew")
             if i < 5:  # Center text for all columns except Notes and Delete
                 label.configure(anchor="center")
+
+    def refresh_emails_and_jobs(self):
+        """Refresh emails and update the job list."""
+        if self.email_watcher:
+            try:
+                self.email_watcher.run()
+                self.refresh_jobs()
+                CTkMessagebox(title="Success", message="Emails checked and jobs refreshed!", icon="info")
+            except Exception as e:
+                print(f"Error refreshing emails: {e}")
+                CTkMessagebox(title="Error", message="Failed to refresh emails. Please try again.", icon="cancel")
+        else:
+            CTkMessagebox(title="Error", message="Email watcher not configured. Please set up email configuration first.", icon="cancel")
+
+    def start_email_watcher(self):
+        """Start the email watcher thread."""
+        if os.path.exists("email_config.json"):
+            with open("email_config.json", "r") as f:
+                config = json.load(f)
+            
+            self.email_watcher = EmailWatcher(config["email"], config["password"], config["imap_server"])
+            
+            # Test connection before starting the thread
+            if self.email_watcher.connect():
+                self.email_watcher_thread = threading.Thread(target=self.run_email_watcher, daemon=True)
+                self.email_watcher_thread.start()
+                CTkMessagebox(title="Success", message="Email watcher started successfully!", icon="info")
+            else:
+                CTkMessagebox(title="Error", message="Failed to connect to email server. Please check your credentials and try again.", icon="cancel")
+        else:
+            CTkMessagebox(title="Error", message="Email configuration not found.", icon="cancel")
+
+    def run_email_watcher(self):
+        """Run the email watcher continuously."""
+        while True:
+            try:
+                self.email_watcher.run()
+                # Sleep for 5 minutes before checking again
+                time.sleep(300)
+            except Exception as e:
+                print(f"Error in email watcher: {e}")
+                # Sleep for 1 minute before retrying
+                time.sleep(60)
 
     def add_new_job(self):
         """Add a new job entry to the database and UI."""
@@ -370,12 +283,25 @@ class HomeScreen(ctk.CTk):
                 print(f"Warning: Unhandled field '{field}' in update_job_row")
 
     def remove_job_row(self, job_id):
-        """Remove a job row from the UI and adjust remaining rows."""
+        """
+        Remove a job row from the UI and adjust remaining rows.
+        
+        This method removes all widgets associated with a job row,
+        updates the internal job_rows dictionary, and shifts the
+        remaining rows up to fill the gap.
+
+        Args:
+            job_id (int): The ID of the job to be removed.
+        """
         if job_id in self.job_rows:
             row = self.job_rows[job_id]["row"]
+            
+            # Destroy all widgets in the row
             for widget in self.job_rows[job_id].values():
                 if isinstance(widget, (ctk.CTkEntry, ctk.CTkLabel, ctk.CTkButton, ctk.CTkOptionMenu)):
                     widget.destroy()
+            
+            # Remove the job from our tracking dictionary
             del self.job_rows[job_id]
             
             # Shift remaining rows up
@@ -386,23 +312,47 @@ class HomeScreen(ctk.CTk):
                         if isinstance(widget, (ctk.CTkEntry, ctk.CTkLabel, ctk.CTkButton, ctk.CTkOptionMenu)):
                             widget.grid(row=job_data["row"])
             
+            # Update the next available row
             self.next_row -= 1
+        else:
+            print(f"Warning: Attempted to remove non-existent job with ID {job_id}")
 
     def open_email_config(self):
+        """Open the email configuration dialog."""
         EmailConfigDialog(self)
 
     def start_email_watcher(self):
+        """
+        Start the email watcher thread.
+
+        This method reads the email configuration, initializes the
+        EmailWatcher, and starts a new thread for watching emails.
+        It provides feedback to the user about the success or failure
+        of starting the email watcher.
+        """
         if os.path.exists("email_config.json"):
-            with open("email_config.json", "r") as f:
-                config = json.load(f)
-            
-            self.email_watcher = EmailWatcher(config["email"], config["password"], config["imap_server"])
-            self.email_watcher_thread = threading.Thread(target=self.run_email_watcher, daemon=True)
-            self.email_watcher_thread.start()
-            
-            CTkMessagebox(title="Success", message="Email watcher started successfully!", icon="info")
+            try:
+                with open("email_config.json", "r") as f:
+                    config = json.load(f)
+                
+                # Validate config
+                required_fields = ["email", "password", "imap_server"]
+                if not all(field in config for field in required_fields):
+                    raise ValueError("Missing required fields in email configuration")
+                
+                self.email_watcher = EmailWatcher(config["email"], config["password"], config["imap_server"])
+                self.email_watcher_thread = threading.Thread(target=self.run_email_watcher, daemon=True)
+                self.email_watcher_thread.start()
+                
+                CTkMessagebox(title="Success", message="Email watcher started successfully!", icon="info")
+            except json.JSONDecodeError:
+                CTkMessagebox(title="Error", message="Invalid email configuration file format.", icon="cancel")
+            except ValueError as e:
+                CTkMessagebox(title="Error", message=str(e), icon="cancel")
+            except Exception as e:
+                CTkMessagebox(title="Error", message=f"An unexpected error occurred: {str(e)}", icon="cancel")
         else:
-            CTkMessagebox(title="Error", message="Email configuration not found.", icon="cancel")
+            CTkMessagebox(title="Error", message="Email configuration not found. Please set up your email first.", icon="cancel")
 
 if __name__ == "__main__":
     app = HomeScreen()
