@@ -10,13 +10,7 @@ import os
 import time
 
 class EmailWatcher:
-    """
-    A class for watching and processing job-related emails.
-    
-    This class connects to an email server, fetches new emails,
-    interprets their content for job application information,
-    and updates a SQLite database with the extracted data.
-    """
+    """A class for watching and processing job-related emails."""
 
     def __init__(self, email_address, password, imap_server):
         self.email_address = email_address

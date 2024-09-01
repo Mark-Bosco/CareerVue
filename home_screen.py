@@ -283,16 +283,7 @@ class HomeScreen(ctk.CTk):
                 print(f"Warning: Unhandled field '{field}' in update_job_row")
 
     def remove_job_row(self, job_id):
-        """
-        Remove a job row from the UI and adjust remaining rows.
-        
-        This method removes all widgets associated with a job row,
-        updates the internal job_rows dictionary, and shifts the
-        remaining rows up to fill the gap.
-
-        Args:
-            job_id (int): The ID of the job to be removed.
-        """
+        """Remove a job row from the UI and adjust remaining rows."""
         if job_id in self.job_rows:
             row = self.job_rows[job_id]["row"]
             
@@ -322,14 +313,7 @@ class HomeScreen(ctk.CTk):
         EmailConfigDialog(self)
 
     def start_email_watcher(self):
-        """
-        Start the email watcher thread.
-
-        This method reads the email configuration, initializes the
-        EmailWatcher, and starts a new thread for watching emails.
-        It provides feedback to the user about the success or failure
-        of starting the email watcher.
-        """
+        """Start the email watcher thread."""
         if os.path.exists("email_config.json"):
             try:
                 with open("email_config.json", "r") as f:

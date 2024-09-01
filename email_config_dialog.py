@@ -4,13 +4,7 @@ import json
 import os
 
 class EmailConfigDialog(ctk.CTkToplevel):
-    """
-    A dialog window for configuring email settings.
-    
-    This class creates a top-level window that allows users to input
-    their email address, password, and IMAP server details. It also
-    handles saving and loading of this configuration.
-    """
+    """A dialog window for configuring email settings."""
 
     def __init__(self, parent):
         super().__init__(parent)
