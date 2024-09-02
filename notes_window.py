@@ -41,14 +41,3 @@ class NotesWindow(ctk.CTkToplevel):
     def on_closing(self):
         """Handle the window closing event."""
         self.destroy()
-
-if __name__ == "__main__":
-    # This block allows for testing the NotesWindow in isolation
-    class DummyParent:
-        def update_job(self, job_id, field, value):
-            print(f"Updating job {job_id}, field '{field}' with value: {value}")
-
-    root = ctk.CTk()
-    dummy_parent = DummyParent()
-    notes_window = NotesWindow(dummy_parent, 1, "Sample notes for testing.")
-    root.mainloop()

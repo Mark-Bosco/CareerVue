@@ -6,12 +6,13 @@ import os
 class EmailConfigDialog(ctk.CTkToplevel):
     """A dialog window for configuring email settings."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, config=None):
         super().__init__(parent)
         self.parent = parent
         self.title("Email Configuration")
         self.geometry("400x250")
         self.attributes('-topmost', True)
+        self.config = config or {}
 
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
@@ -19,9 +20,12 @@ class EmailConfigDialog(ctk.CTkToplevel):
 
         # Create and place widgets
         self._create_widgets()
-
+            
         # Load existing configuration
-        self.load_config()
+        self.email_entry.insert(0, config.get("email", ""))
+        self.password_entry.insert(0, config.get("password", ""))
+        self.inbox_entry.insert(0, config.get("inbox", ""))
+        self.server_entry.insert(0, config.get("imap_server", ""))
 
         # Set up window close protocol
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -37,40 +41,39 @@ class EmailConfigDialog(ctk.CTkToplevel):
         ctk.CTkLabel(self, text="Password:").grid(row=1, column=0, padx=10, pady=10, sticky="e")
         self.password_entry = ctk.CTkEntry(self, show="*")
         self.password_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
+        
+        # Inbox
+        ctk.CTkLabel(self, text="Inbox:").grid(row=2, column=0, padx=10, pady=10, sticky="e")
+        self.inbox_entry = ctk.CTkEntry(self)
+        self.inbox_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
 
         # IMAP Server
-        ctk.CTkLabel(self, text="IMAP Server:").grid(row=2, column=0, padx=10, pady=10, sticky="e")
+        ctk.CTkLabel(self, text="IMAP Server:").grid(row=3, column=0, padx=10, pady=10, sticky="e")
         self.server_entry = ctk.CTkEntry(self)
-        self.server_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
+        self.server_entry.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
 
         # Save Button
         self.save_button = ctk.CTkButton(self, text="Save", command=self.save_config)
-        self.save_button.grid(row=3, column=0, columnspan=2, padx=10, pady=20)
-
-    def load_config(self):
-        """Load existing email configuration if available."""
-        if os.path.exists("email_config.json"):
-            with open("email_config.json", "r") as f:
-                config = json.load(f)
-                self.email_entry.insert(0, config.get("email", ""))
-                self.server_entry.insert(0, config.get("imap_server", ""))
-                # Note: We don't load the password for security reasons
+        self.save_button.grid(row=4, column=0, columnspan=2, padx=10, pady=20)
 
     def save_config(self):
         """Save the email configuration."""
         email = self.email_entry.get()
         password = self.password_entry.get()
+        inbox = self.inbox_entry.get()
         server = self.server_entry.get()
 
-        if email and password and server:
+        if email and password and inbox and server:
             config = {
                 "email": email,
                 "password": password,
+                "inbox": inbox,
                 "imap_server": server
             }
             with open("email_config.json", "w") as f:
                 json.dump(config, f)
-            self.parent.after(100, self.parent.start_email_watcher)  # Defer the start of email watcher
+            # Defer the start of email watcher by 100ms so GUI has time to load
+            self.parent.after(100, self.parent.start_email_watcher)  
             self.on_closing()
         else:
             CTkMessagebox(title="Error", message="Please fill in all fields.", icon="cancel")

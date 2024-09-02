@@ -1,3 +1,4 @@
+import time
 import customtkinter as ctk
 import sqlite3
 from CTkMessagebox import CTkMessagebox
@@ -5,7 +6,6 @@ from datetime import datetime
 import threading
 import json
 import os
-import time
 from email_watcher import EmailWatcher
 from notes_window import NotesWindow
 from email_config_dialog import EmailConfigDialog
@@ -34,6 +34,10 @@ class HomeScreen(ctk.CTk):
         self.setup_main_frame()
         self.setup_jobs_frame()
 
+        self.config = self.load_config()
+
+        self.start_email_watcher()
+
         # Refresh job list
         self.refresh_jobs()
 
@@ -49,7 +53,7 @@ class HomeScreen(ctk.CTk):
         self.email_config_button = ctk.CTkButton(self.top_frame, text="Email Config", command=self.open_email_config)
         self.email_config_button.grid(row=0, column=1, padx=10, pady=10)
 
-        self.refresh_button = ctk.CTkButton(self.top_frame, text="🔄", width=40, font=("Arial", 20), command=self.refresh_emails_and_jobs)
+        self.refresh_button = ctk.CTkButton(self.top_frame, text="Refresh", width=40, font=("Arial", 14), command=self.refresh_emails_and_jobs)
         self.refresh_button.grid(row=0, column=2, padx=10, pady=10, sticky="e")
 
         self.add_job_button = ctk.CTkButton(self.top_frame, text="+", width=40, font=("Arial", 20), command=self.add_new_job)
@@ -90,23 +94,48 @@ class HomeScreen(ctk.CTk):
         else:
             CTkMessagebox(title="Error", message="Email watcher not configured. Please set up email configuration first.", icon="cancel")
 
-    def start_email_watcher(self):
-        """Start the email watcher thread."""
-        if os.path.exists("email_config.json"):
+    def load_config(self):
+        try:
             with open("email_config.json", "r") as f:
                 config = json.load(f)
-            
-            self.email_watcher = EmailWatcher(config["email"], config["password"], config["imap_server"])
-            
-            # Test connection before starting the thread
-            if self.email_watcher.connect():
-                self.email_watcher_thread = threading.Thread(target=self.run_email_watcher, daemon=True)
-                self.email_watcher_thread.start()
-                CTkMessagebox(title="Success", message="Email watcher started successfully!", icon="info")
-            else:
-                CTkMessagebox(title="Error", message="Failed to connect to email server. Please check your credentials and try again.", icon="cancel")
+        except FileNotFoundError:
+            print("Error: The file 'email_config.json' was not found.")
+            config = {}  # Assign a default empty dictionary or other default values
+        except json.JSONDecodeError:
+            print("Error: Failed to decode JSON. The file may be corrupted or improperly formatted.")
+            config = {}  # Assign a default empty dictionary or other default values
+        except IOError as e:
+            print(f"Error: An I/O error occurred: {e}")
+            config = {}  # Assign a default empty dictionary or other default values
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            config = {}  # Assign a default empty dictionary or other default values
+
+        return config
+
+    def start_email_watcher(self):
+        """Start the email watcher thread."""
+        if not self.config:
+            #CTkMessagebox(title="Error", message="Email configuration not found.", icon="cancel")
+            return
+
+        required_keys = ["email", "password", "inbox", "imap_server"]
+        if not all(key in self.config for key in required_keys):
+            CTkMessagebox(title="Error", message="Email configuration incomplete. Please check your credentials and try again", icon="cancel")
+            return
+        
+        self.email_watcher = EmailWatcher(self.config["email"], 
+                                          self.config["password"], 
+                                          self.config["inbox"], 
+                                          self.config["imap_server"])
+        
+        # Test connection before starting the thread
+        if self.email_watcher.connect():
+            self.email_watcher_thread = threading.Thread(target=self.run_email_watcher, daemon=True)
+            self.email_watcher_thread.start()
+            CTkMessagebox(title="Success", message="Email watcher started successfully!", icon="info")
         else:
-            CTkMessagebox(title="Error", message="Email configuration not found.", icon="cancel")
+            CTkMessagebox(title="Error", message="Failed to connect to email server. Please check your credentials and try again.", icon="cancel")
 
     def run_email_watcher(self):
         """Run the email watcher continuously."""
@@ -114,6 +143,7 @@ class HomeScreen(ctk.CTk):
             try:
                 self.email_watcher.run()
                 # Sleep for 5 minutes before checking again
+                # This should be configurable
                 time.sleep(300)
             except Exception as e:
                 print(f"Error in email watcher: {e}")
@@ -310,33 +340,7 @@ class HomeScreen(ctk.CTk):
 
     def open_email_config(self):
         """Open the email configuration dialog."""
-        EmailConfigDialog(self)
-
-    def start_email_watcher(self):
-        """Start the email watcher thread."""
-        if os.path.exists("email_config.json"):
-            try:
-                with open("email_config.json", "r") as f:
-                    config = json.load(f)
-                
-                # Validate config
-                required_fields = ["email", "password", "imap_server"]
-                if not all(field in config for field in required_fields):
-                    raise ValueError("Missing required fields in email configuration")
-                
-                self.email_watcher = EmailWatcher(config["email"], config["password"], config["imap_server"])
-                self.email_watcher_thread = threading.Thread(target=self.run_email_watcher, daemon=True)
-                self.email_watcher_thread.start()
-                
-                CTkMessagebox(title="Success", message="Email watcher started successfully!", icon="info")
-            except json.JSONDecodeError:
-                CTkMessagebox(title="Error", message="Invalid email configuration file format.", icon="cancel")
-            except ValueError as e:
-                CTkMessagebox(title="Error", message=str(e), icon="cancel")
-            except Exception as e:
-                CTkMessagebox(title="Error", message=f"An unexpected error occurred: {str(e)}", icon="cancel")
-        else:
-            CTkMessagebox(title="Error", message="Email configuration not found. Please set up your email first.", icon="cancel")
+        EmailConfigDialog(self, self.config)
 
 if __name__ == "__main__":
     app = HomeScreen()

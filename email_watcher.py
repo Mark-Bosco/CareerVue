@@ -12,9 +12,10 @@ import time
 class EmailWatcher:
     """A class for watching and processing job-related emails."""
 
-    def __init__(self, email_address, password, imap_server):
+    def __init__(self, email_address, password, inbox, imap_server):
         self.email_address = email_address
         self.password = password
+        self.inbox = inbox
         self.imap_server = imap_server
         self.mail = None
         self.setup_logging()
@@ -73,7 +74,7 @@ class EmailWatcher:
             email.message.EmailMessage: Parsed email messages.
         """
         try:
-            self.mail.select('inbox')
+            self.mail.select(self.inbox)
             date_string = self.last_checked.strftime("%d-%b-%Y")
             _, search_data = self.mail.search(None, f'(SINCE "{date_string}")')
             for num in search_data[0].split():
@@ -276,11 +277,3 @@ class EmailWatcher:
         else:
             logging.error("Failed to connect to email server")
             raise ConnectionError("Failed to connect to email server")
-
-if __name__ == "__main__":
-    # Example usage of the EmailWatcher class
-    import json
-    with open("email_config.json", "r") as f:
-        config = json.load(f)
-    watcher = EmailWatcher(config["email"], config["password"], config["imap_server"])
-    watcher.run()
