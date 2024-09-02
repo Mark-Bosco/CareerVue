@@ -20,6 +20,7 @@ class EmailWatcher:
         self.mail = None
         self.setup_logging()
         self.last_checked = self.load_last_checked_time()
+        self.stop_flag = False
 
     def setup_logging(self):
         """Configure logging for the EmailWatcher."""
@@ -251,6 +252,8 @@ class EmailWatcher:
             try:
                 logging.info("Starting to fetch new emails")
                 for email_message in self.fetch_new_emails():
+                    if self.stop_flag:
+                        break
                     logging.info("Processing a new email")
                     email_data = self.parse_email(email_message)
                     if email_data:
@@ -267,7 +270,7 @@ class EmailWatcher:
                 self.save_last_checked_time()
             except Exception as e:
                 logging.error(f"Error in email watcher run: {e}")
-                raise  # Re-raise the exception to be caught in the main application
+                raise
             finally:
                 try:
                     self.mail.logout()

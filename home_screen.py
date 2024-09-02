@@ -15,7 +15,17 @@ class HomeScreen(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-
+        
+        # Delete old log file
+        if os.path.exists("email_watcher.log"):
+            try:
+                os.remove("email_watcher.log")
+                print(f"Log file 'email_watcher.log' deleted successfully.")
+            except Exception as e:
+                print(f"Error deleting log file 'email_watcher.log': {e}")
+        else:
+            print(f"Log file 'email_watcher.log' does not exist.")
+    
         self.title("CareerVue - Job Application Tracker")
         self.geometry("1200x600")
 
@@ -33,8 +43,11 @@ class HomeScreen(ctk.CTk):
         self.setup_top_frame()
         self.setup_main_frame()
         self.setup_jobs_frame()
-
+        
         self.config = self.load_config()
+
+        if self.config == {}:
+            self.open_email_config()
 
         self.start_email_watcher()
 
@@ -50,7 +63,7 @@ class HomeScreen(ctk.CTk):
         self.logo_label = ctk.CTkLabel(self.top_frame, text="CareerVue", font=ctk.CTkFont(size=24, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
 
-        self.email_config_button = ctk.CTkButton(self.top_frame, text="Email Config", command=self.open_email_config)
+        self.email_config_button = ctk.CTkButton(self.top_frame, text="Add Email Config", command=self.open_email_config)
         self.email_config_button.grid(row=0, column=1, padx=10, pady=10)
 
         self.refresh_button = ctk.CTkButton(self.top_frame, text="Refresh", width=40, font=("Arial", 14), command=self.refresh_emails_and_jobs)
@@ -58,6 +71,36 @@ class HomeScreen(ctk.CTk):
 
         self.add_job_button = ctk.CTkButton(self.top_frame, text="+", width=40, font=("Arial", 20), command=self.add_new_job)
         self.add_job_button.grid(row=0, column=3, padx=10, pady=10, sticky="e")
+
+        # Add last sync time label
+        self.last_sync_label = ctk.CTkLabel(self.top_frame, text="Last sync: Never", font=("Arial", 12))
+        self.last_sync_label.grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="w")
+
+        # Add email watcher status indicator
+        self.status_indicator = ctk.CTkLabel(self.top_frame, text="●", font=("Arial", 20), text_color="red")
+        self.status_indicator.grid(row=1, column=2, padx=10, pady=(0, 10), sticky="e")
+
+        self.update_sync_time()
+        self.update_status_indicator()
+
+    def update_sync_time(self):
+        """Update the last sync time label."""
+        try:
+            with open('last_checked.json', 'r') as f:
+                data = json.load(f)
+                last_checked = datetime.fromisoformat(data['last_checked'])
+                self.last_sync_label.configure(text=f"Last sync: {last_checked.strftime('%Y-%m-%d %H:%M:%S')}")
+        except FileNotFoundError:
+            self.last_sync_label.configure(text="Last sync: Never")
+        except json.JSONDecodeError:
+            self.last_sync_label.configure(text="Last sync: Error reading file")
+
+    def update_status_indicator(self):
+        """Update the email watcher status indicator."""
+        if self.email_watcher and self.email_watcher.connect():
+            self.status_indicator.configure(text_color="green")
+        else:
+            self.status_indicator.configure(text_color="red")
 
     def setup_main_frame(self):
         """Set up the main frame that will contain the jobs list."""
@@ -87,6 +130,8 @@ class HomeScreen(ctk.CTk):
             try:
                 self.email_watcher.run()
                 self.refresh_jobs()
+                self.update_sync_time()
+                self.update_status_indicator()
                 CTkMessagebox(title="Success", message="Emails checked and jobs refreshed!", icon="info")
             except Exception as e:
                 print(f"Error refreshing emails: {e}")
@@ -113,10 +158,18 @@ class HomeScreen(ctk.CTk):
 
         return config
 
+    def update_config(self, new_config):
+        """Update the email configuration and restart the email watcher."""
+        self.config = new_config
+        if self.email_watcher:
+            self.stop_email_watcher()
+        self.start_email_watcher()
+        self.update_status_indicator()
+        self.update_sync_time()
+
     def start_email_watcher(self):
         """Start the email watcher thread."""
         if not self.config:
-            #CTkMessagebox(title="Error", message="Email configuration not found.", icon="cancel")
             return
 
         required_keys = ["email", "password", "inbox", "imap_server"]
@@ -133,15 +186,19 @@ class HomeScreen(ctk.CTk):
         if self.email_watcher.connect():
             self.email_watcher_thread = threading.Thread(target=self.run_email_watcher, daemon=True)
             self.email_watcher_thread.start()
-            CTkMessagebox(title="Success", message="Email watcher started successfully!", icon="info")
+            self.update_status_indicator()
+            print("Email watcher started successfully!")
         else:
+            self.update_status_indicator()
             CTkMessagebox(title="Error", message="Failed to connect to email server. Please check your credentials and try again.", icon="cancel")
 
     def run_email_watcher(self):
         """Run the email watcher continuously."""
-        while True:
+        while not getattr(self.email_watcher, 'stop_flag', False):
             try:
+                print("Running email watcher")
                 self.email_watcher.run()
+                self.update_sync_time()
                 # Sleep for 5 minutes before checking again
                 # This should be configurable
                 time.sleep(300)
@@ -149,6 +206,16 @@ class HomeScreen(ctk.CTk):
                 print(f"Error in email watcher: {e}")
                 # Sleep for 1 minute before retrying
                 time.sleep(60)
+            finally:
+                self.update_status_indicator()
+    
+    def stop_email_watcher(self):
+        """Stop the current email watcher thread."""
+        if self.email_watcher and self.email_watcher_thread and self.email_watcher_thread.is_alive():
+            self.email_watcher.stop_flag = True
+            self.email_watcher_thread.join(timeout=5)  # Wait for the thread to finish
+        self.email_watcher = None
+        self.email_watcher_thread = None
 
     def add_new_job(self):
         """Add a new job entry to the database and UI."""

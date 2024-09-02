@@ -64,19 +64,22 @@ class EmailConfigDialog(ctk.CTkToplevel):
         server = self.server_entry.get()
 
         if email and password and inbox and server:
-            config = {
+            new_config = {
                 "email": email,
                 "password": password,
                 "inbox": inbox,
                 "imap_server": server
             }
             with open("email_config.json", "w") as f:
-                json.dump(config, f)
-            # Defer the start of email watcher by 100ms so GUI has time to load
-            self.parent.after(100, self.parent.start_email_watcher)  
+                json.dump(new_config, f)
+            
+            # Update the parent's configuration and restart the email watcher
+            self.parent.update_config(new_config)
+            
             self.on_closing()
         else:
             CTkMessagebox(title="Error", message="Please fill in all fields.", icon="cancel")
+
 
     def on_closing(self):
         """Handle window closing event."""
