@@ -1,3 +1,4 @@
+import hashlib
 import imaplib
 import email
 from email.header import decode_header
@@ -12,12 +13,14 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 import string
-import hashlib
 import backoff
+from collections import Counter
 
 nltk.download('punkt', quiet=True)
 nltk.download('stopwords', quiet=True)
 nltk.download('punkt_tab', quiet=True)
+nltk.download('averaged_perceptron_tagger', quiet=True)
+nltk.download('averaged_perceptron_tagger_eng', quiet=True)
 
 class EmailWatcher:
     """A class for watching and processing job-related emails."""
@@ -34,8 +37,27 @@ class EmailWatcher:
         self.last_checked = self.load_last_checked_time()
         self.stop_flag = False
         self.setup_nlp()
-        self.setup_database()
+        self.processed_hashes = set()
+        self.load_processed_hashes()
 
+    def load_processed_hashes(self):
+        """Load all processed email hashes from the database."""
+        conn = sqlite3.connect("job_applications.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT email_hash FROM jobs")
+        hashes = cursor.fetchall()
+        conn.close()
+        self.processed_hashes = set(hash[0] for hash in hashes)
+        logging.info(f"Loaded {len(self.processed_hashes)} processed email hashes")
+
+    def remove_processed_hash(self, email_hash):
+        """Remove a processed hash from the cache."""
+        if email_hash in self.processed_hashes:
+            self.processed_hashes.remove(email_hash)
+            logging.info(f"Removed hash {email_hash} from processed hashes")
+        else:
+            logging.warning(f"Attempted to remove non-existent hash {email_hash} from processed hashes")
+            
     def setup_logging(self):
         """Configure logging for the EmailWatcher."""
         logging.basicConfig(filename='email_watcher.log', level=logging.DEBUG,
@@ -67,20 +89,6 @@ class EmailWatcher:
         self.mail.select(self.inbox)
         logging.info(f"Successfully connected to {self.imap_server}")
         return True
-
-    def setup_database(self):
-        """Set up the database table for storing email IDs."""
-        conn = sqlite3.connect("job_applications.db")
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS processed_emails (
-                email_id TEXT PRIMARY KEY,
-                job_id INTEGER,
-                FOREIGN KEY (job_id) REFERENCES jobs (id)
-            )
-        """)
-        conn.commit()
-        conn.close()
 
     def fetch_new_emails(self):
         """
@@ -187,32 +195,23 @@ class EmailWatcher:
             'offer': ['offer', 'congratulations', 'welcome', 'join'],
             'rejection': ['unfortunately', 'regret', 'not selected', 'other candidates', 'sorry']
         }
-
-    def generate_email_id(self, email_message):
-        """Generate a unique ID for an email."""
-        # Use a combination of subject, sender, and date to create a unique ID
-        subject = email_message.get("Subject", "")
-        sender = email_message.get("From", "")
-        date = email_message.get("Date", "")
-        unique_string = f"{subject}{sender}{date}".encode('utf-8')
-        return hashlib.md5(unique_string).hexdigest()
-
-    def is_email_processed(self, email_id):
-        """Check if an email has already been processed."""
-        conn = sqlite3.connect("job_applications.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM processed_emails WHERE email_id = ?", (email_id,))
-        result = cursor.fetchone()
-        conn.close()
-        return result is not None
-
-    def mark_email_as_processed(self, email_id, job_id):
-        """Mark an email as processed in the database."""
-        conn = sqlite3.connect("job_applications.db")
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO processed_emails (email_id, job_id) VALUES (?, ?)", (email_id, job_id))
-        conn.commit()
-        conn.close()
+        self.position_keywords = {
+            "Engineer": ["software", "systems", "data", "frontend", "backend", "full stack", "devops", "cloud", "machine learning", "ai"],
+            "Developer": ["web", "mobile", "app", "frontend", "backend", "full stack", "software"],
+            "Analyst": ["data", "business", "financial", "systems", "security"],
+            "Manager": ["project", "product", "technical", "engineering", "program"],
+            "Designer": ["ui", "ux", "user interface", "user experience", "graphic"],
+            "Scientist": ["data", "research", "machine learning"],
+            "Administrator": ["system", "database", "network"],
+            "Architect": ["software", "systems", "solutions", "enterprise", "data"],
+            "Specialist": ["it", "security", "support", "qa", "quality assurance"],
+            "Consultant": ["it", "technology", "software", "management"],
+            "Intern": ["software", "data", "engineering", "research"]
+        }
+        self.common_company_suffixes = [
+            "Inc", "LLC", "Ltd", "Limited", "Corp", "Corporation", "Co", "Company",
+            "GmbH", "AG", "SA", "NV", "PLC", "Group", "Holdings", "Ventures"
+        ]
 
     def preprocess_text(self, text):
         """Preprocess the text for NLP tasks."""
@@ -220,73 +219,129 @@ class EmailWatcher:
         tokens = [token for token in tokens if token not in self.stop_words and token not in self.punctuation]
         return tokens
 
-    def extract_entities(self, text):
-        """Extract company and position from the text."""
-        company = "Unknown Company"
-        position = "Unknown Position"
+    def determine_entities(self, tokens, email_data):
+        """Determine the type of email and position based on keywords."""
+        type_scores = {category: 0 for category in self.job_keywords}
+        position_scores = Counter()
 
-        company_patterns = [
-            r"(?i)from\s+([\w\s&]+)",
-            r"(?i)at\s+([\w\s&]+)",
-            r"(?i)([\w\s&]+)\s+is hiring",
-            r"(?i)join\s+([\w\s&]+)"
-        ]
-        for pattern in company_patterns:
-            match = re.search(pattern, text)
-            if match:
-                company = match.group(1).strip()
-                logging.debug(f"Extracted company: {company}")
-                break
+        # Combine tokens from subject and body
+        all_text = f"{email_data['subject']} {email_data['body']}"
+        all_tokens = word_tokenize(all_text.lower())
 
-        position_patterns = [
-            r"(?i)for\s+([\w\s-]+)\s+position",
-            r"(?i)([\w\s-]+)\s+role",
-            r"(?i)hiring\s+(?:a|an)\s+([\w\s-]+)",
-            r"(?i)apply\s+for\s+([\w\s-]+)"
-        ]
-        for pattern in position_patterns:
-            match = re.search(pattern, text)
-            if match:
-                position = match.group(1).strip()
-                logging.debug(f"Extracted position: {position}")
-                break
-
-        return company, position
-
-    def determine_email_type(self, tokens):
-        """Determine the type of email based on keywords."""
-        scores = {category: 0 for category in self.job_keywords}
+        # Score email type
         for token in tokens:
             for category, keywords in self.job_keywords.items():
                 if token in keywords:
                     if category == "application":
-                        scores[category] += 1
+                        type_scores[category] += 1
                     else:
-                        scores[category] += 4
-        email_type = max(scores, key=scores.get)
-        logging.info(scores)
-        logging.debug(f"Determined email type: {email_type}")
-        return email_type
+                        type_scores[category] += 4
 
-    def interpret_email(self, email_data, email_id):
+        # Score positions
+        for i in range(len(all_tokens) - 1):
+            bigram = f"{all_tokens[i]} {all_tokens[i+1]}"
+            for position, keywords in self.position_keywords.items():
+                if all_tokens[i] in keywords or bigram in keywords:
+                    position_scores[position] += 1
+
+        email_type = max(type_scores, key=type_scores.get)
+        
+        # Determine the most likely position
+        if position_scores:
+            position = position_scores.most_common(1)[0][0]
+        else:
+            position = "Unknown"
+
+        logging.info(f"Type scores: {type_scores}")
+        logging.info(f"Position scores: {position_scores}")
+        logging.debug(f"Determined email type: {email_type}")
+        logging.debug(f"Determined position: {position}")
+
+        return email_type, position
+
+    def extract_company(self, email_data):
+        """Extract the company name from the email data."""
+        # Combine subject and body for analysis
+        full_text = f"{email_data['subject']} {email_data['body']}"
+        
+        # Tokenize and tag parts of speech
+        tokens = word_tokenize(full_text)
+        pos_tags = nltk.pos_tag(tokens)
+
+        # Extract potential company names (proper nouns)
+        potential_companies = []
+        for i, (word, tag) in enumerate(pos_tags):
+            if tag.startswith('NNP'):
+                # Check for multi-word company names
+                company_name = word
+                j = i + 1
+                while j < len(pos_tags) and pos_tags[j][1].startswith('NNP'):
+                    company_name += f" {pos_tags[j][0]}"
+                    j += 1
+                potential_companies.append(company_name)
+
+        # Score potential company names
+        company_scores = Counter()
+        for company in potential_companies:
+            score = 1
+            # Boost score for companies with common suffixes
+            if any(suffix in company.split() for suffix in self.common_company_suffixes):
+                score += 2
+            # Boost score for companies mentioned multiple times
+            company_scores[company] += score
+
+        # Get the most likely company name
+        if company_scores:
+            most_likely_company = company_scores.most_common(1)[0][0]
+            logging.info(f"Extracted company name: {most_likely_company}")
+            return most_likely_company
+        else:
+            logging.warning("No company name extracted")
+            return "Unknown"
+
+    def generate_email_hash(self, email_data):
+        """Generate a unique hash for an email."""
+        hash_input = f"{email_data['subject']}{email_data['sender']}{email_data['date']}"
+        return hashlib.md5(hash_input.encode()).hexdigest()
+
+    def is_email_processed(self, email_hash):
+        """Check if an email has already been processed."""
+        return email_hash in self.processed_hashes
+
+    def process_email(self, email_message):
+        """Process a single email message."""
+        email_data = self.parse_email(email_message)
+        if email_data:
+            email_hash = self.generate_email_hash(email_data)
+            if not self.is_email_processed(email_hash):
+                job_data = self.interpret_email(email_data, email_hash)
+                if job_data:
+                    self.update_database(job_data)
+                    self.processed_hashes.add(email_hash)
+                else:
+                    logging.info("Email not interpreted as job-related")
+            else:
+                logging.info(f"Email with hash {email_hash} has already been processed")
+        else:
+            logging.warning("Failed to parse email")
+
+    def interpret_email(self, email_data, email_hash):
         """
         Interpret the email content to determine if it's job-related and extract information.
         """
         subject_tokens = self.preprocess_text(email_data["subject"])
-        logging.debug(f"Preprocessed subject tokens: {subject_tokens}")
         body_tokens = self.preprocess_text(email_data["body"])
-        logging.debug(f"Preprocessed body tokens: {body_tokens}")
         all_tokens = subject_tokens + body_tokens
 
         job_related_score = sum(1 for token in all_tokens if any(token in keywords for keywords in self.job_keywords.values()))
         logging.debug(f"Job-related score: {job_related_score}")
         if job_related_score < 2:
-            logging.info(f"Email {email_id} not considered job-related")
+            logging.info(f"Email not considered job-related")
             return None
 
-        company, position = self.extract_entities(email_data["subject"] + " " + email_data["body"])
-
-        email_type = self.determine_email_type(all_tokens)
+        email_type, position = self.determine_entities(all_tokens, email_data)
+        company = self.extract_company(email_data)
+        
         status_map = {
             'application': 'Applied',
             'interview': 'Interview',
@@ -296,12 +351,12 @@ class EmailWatcher:
         status = status_map.get(email_type, 'Applied')
 
         return {
-            "email_id": email_id,
             "company": company,
             "position": position,
             "status": status,
             "date": email_data["date"].strftime("%Y-%m-%d"),
-            "notes": f"Email type: {email_type}\nEmail subject: {email_data['subject']}\n\nEmail body: {email_data['body'][:500]}..."
+            "notes": f"Email subject: {email_data['subject']}\n\nEmail body: {email_data['body'][:500]}...",
+            "email_hash": email_hash
         }
 
     def update_database(self, job_data):
@@ -314,13 +369,12 @@ class EmailWatcher:
                 conn = sqlite3.connect("job_applications.db", timeout=10)
                 cursor = conn.cursor()
 
-                # Check if the job already exists
-                cursor.execute("SELECT id, status, application_date FROM jobs WHERE company = ? AND position = ?", 
-                               (job_data["company"], job_data["position"]))
+                # Check if the job already exists based on email_hash
+                cursor.execute("SELECT id, status FROM jobs WHERE email_hash = ?", (job_data["email_hash"],))
                 existing_job = cursor.fetchone()
 
                 if existing_job:
-                    job_id, current_status, existing_app_date = existing_job
+                    job_id, current_status = existing_job
                     if job_data["status"] != current_status:
                         cursor.execute("""
                             UPDATE jobs 
@@ -330,14 +384,11 @@ class EmailWatcher:
                 else:
                     # Insert new job
                     cursor.execute("""
-                        INSERT INTO jobs (company, position, status, application_date, last_updated, notes)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO jobs (company, position, status, application_date, last_updated, notes, email_hash)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, (job_data["company"], job_data["position"], job_data["status"], 
-                          job_data["date"], job_data["date"], job_data["notes"]))
+                          job_data["date"], job_data["date"], job_data["notes"], job_data["email_hash"]))
                     job_id = cursor.lastrowid
-
-                # Mark the email as processed
-                self.mark_email_as_processed(job_data["email_id"], job_id)
 
                 conn.commit()
                 logging.info(f"Database updated for job: {job_data['company']} - {job_data['position']}")
@@ -362,20 +413,7 @@ class EmailWatcher:
                 for email_message in self.fetch_new_emails():
                     if self.stop_flag:
                         break
-                    email_id = self.generate_email_id(email_message)
-                    if not self.is_email_processed(email_id):
-                        logging.info(f"Processing new email: {email_id}")
-                        email_data = self.parse_email(email_message)
-                        if email_data:
-                            job_data = self.interpret_email(email_data, email_id)
-                            if job_data:
-                                self.update_database(job_data)
-                            else:
-                                logging.info("Email not interpreted as job-related")
-                        else:
-                            logging.warning("Failed to parse email")
-                    else:
-                        logging.info(f"Email already processed: {email_id}")
+                    self.process_email(email_message)
                 logging.info("Finished processing emails")
                 self.save_last_checked_time()
         except imaplib.IMAP4.error as e:

@@ -33,7 +33,8 @@ def main():
         status TEXT NOT NULL,
         application_date TEXT,
         last_updated TEXT,
-        notes TEXT
+        notes TEXT,
+        email_hash TEXT UNIQUE
     );
     """
 

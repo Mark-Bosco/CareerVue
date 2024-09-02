@@ -1,3 +1,4 @@
+import logging
 import time
 import customtkinter as ctk
 import sqlite3
@@ -237,10 +238,30 @@ class HomeScreen(ctk.CTk):
         if confirm.get() == "Yes":
             conn = sqlite3.connect("job_applications.db")
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM jobs WHERE id=?", (job_id,))
-            conn.commit()
+            
+            # Get the email hash before deleting the job
+            cursor.execute("SELECT email_hash FROM jobs WHERE id=?", (job_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                email_hash = result[0]
+                
+                # Delete the job from the database
+                cursor.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+                conn.commit()
+                
+                # Remove the job row from the UI
+                self.remove_job_row(job_id)
+                
+                # Remove the email hash from the EmailWatcher's cache
+                if self.email_watcher:
+                    self.email_watcher.remove_processed_hash(email_hash)
+                
+                logging.info(f"Deleted job with ID {job_id} and removed hash {email_hash} from cache")
+            else:
+                logging.warning(f"Attempted to delete non-existent job with ID {job_id}")
+            
             conn.close()
-            self.remove_job_row(job_id)
 
     def validate_and_update(self, job_id, field, value, widget):
         """Validate user input and update the job if valid."""
@@ -269,7 +290,7 @@ class HomeScreen(ctk.CTk):
         conn.close()
         return value
 
-    def update_job(self, job_id, field, value):
+    def update_job(self, job_id, field, value): 
         """Update a job field in the database and UI."""
         conn = sqlite3.connect("job_applications.db")
         cursor = conn.cursor()
@@ -299,8 +320,11 @@ class HomeScreen(ctk.CTk):
         jobs = cursor.fetchall()
         conn.close()
 
+        # Keep track of job IDs to remove
+        existing_job_ids = set(self.job_rows.keys())
+
         for job in jobs:
-            job_id, company, position, status, app_date, last_updated, notes = job
+            job_id, company, position, status, app_date, last_updated, notes, email_hash = job
             if job_id not in self.job_rows:
                 self.add_job_row(job_id, company, position, status, app_date, last_updated, notes)
             else:
@@ -309,6 +333,11 @@ class HomeScreen(ctk.CTk):
                 self.update_job_row(job_id, "status", status)
                 self.update_job_row(job_id, "application_date", app_date)
                 self.update_job_row(job_id, "last_updated", last_updated)
+            existing_job_ids.discard(job_id)
+
+        # Remove any jobs that are no longer in the database
+        for job_id in existing_job_ids:
+            self.remove_job_row(job_id)
 
     def add_job_row(self, job_id, company, position, status, app_date, last_updated, notes):
         """Add a new job row to the UI."""
