@@ -8,11 +8,23 @@ import logging
 import json
 import os
 import time
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+import string
+import hashlib
+import backoff
+
+nltk.download('punkt', quiet=True)
+nltk.download('stopwords', quiet=True)
+nltk.download('punkt_tab', quiet=True)
 
 class EmailWatcher:
     """A class for watching and processing job-related emails."""
 
     def __init__(self, email_address, password, inbox, imap_server):
+        self.connect_attempts = 0
+        self.max_connect_attempts = 3
         self.email_address = email_address
         self.password = password
         self.inbox = inbox
@@ -21,6 +33,8 @@ class EmailWatcher:
         self.setup_logging()
         self.last_checked = self.load_last_checked_time()
         self.stop_flag = False
+        self.setup_nlp()
+        self.setup_database()
 
     def setup_logging(self):
         """Configure logging for the EmailWatcher."""
@@ -45,27 +59,28 @@ class EmailWatcher:
         with open('last_checked.json', 'w') as f:
             json.dump({'last_checked': datetime.datetime.now().isoformat()}, f)
 
+    @backoff.on_exception(backoff.expo, imaplib.IMAP4.error, max_tries=3)
     def connect(self):
-        """
-        Connect to the IMAP server.
+        """Connect to the IMAP server with exponential backoff."""
+        self.mail = imaplib.IMAP4_SSL(self.imap_server)
+        self.mail.login(self.email_address, self.password)
+        self.mail.select(self.inbox)
+        logging.info(f"Successfully connected to {self.imap_server}")
+        return True
 
-        Returns:
-            bool: True if connection is successful, False otherwise.
-        """
-        try:
-            self.mail = imaplib.IMAP4_SSL(self.imap_server)
-            self.mail.login(self.email_address, self.password)
-            logging.info(f"Successfully connected to {self.imap_server}")
-            return True
-        except imaplib.IMAP4.error as e:
-            logging.error(f"IMAP4 error: {e}")
-            if "AUTHENTICATIONFAILED" in str(e):
-                logging.error("Authentication failed. If using Gmail, please use an App Password.")
-                logging.error("See: https://support.google.com/accounts/answer/185833")
-            return False
-        except Exception as e:
-            logging.error(f"Error connecting to email server: {e}")
-            return False
+    def setup_database(self):
+        """Set up the database table for storing email IDs."""
+        conn = sqlite3.connect("job_applications.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS processed_emails (
+                email_id TEXT PRIMARY KEY,
+                job_id INTEGER,
+                FOREIGN KEY (job_id) REFERENCES jobs (id)
+            )
+        """)
+        conn.commit()
+        conn.close()
 
     def fetch_new_emails(self):
         """
@@ -90,45 +105,6 @@ class EmailWatcher:
             logging.error(f"IMAP4 error during fetch: {e}")
         except Exception as e:
             logging.error(f"Unexpected error during fetch: {e}")
-
-    def update_database(self, job_data):
-        """
-        Update the job application database with extracted information.
-
-        Args:
-            job_data (dict): Dictionary containing job application information.
-        """
-        conn = sqlite3.connect("job_applications.db")
-        cursor = conn.cursor()
-
-        try:
-            # Check if the job already exists
-            cursor.execute("SELECT id, status FROM jobs WHERE company = ? AND position = ?", (job_data["company"], job_data["position"]))
-            existing_job = cursor.fetchone()
-
-            if existing_job:
-                # Update existing job
-                job_id, current_status = existing_job
-                if job_data["status"] != current_status:
-                    cursor.execute("""
-                        UPDATE jobs 
-                        SET status = ?, last_updated = ?, notes = notes || '\n\n' || ?
-                        WHERE id = ?
-                    """, (job_data["status"], job_data["date"], job_data["notes"], job_id))
-            else:
-                # Insert new job
-                cursor.execute("""
-                    INSERT INTO jobs (company, position, status, application_date, last_updated, notes)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (job_data["company"], job_data["position"], job_data["status"], job_data["date"], job_data["date"], job_data["notes"]))
-
-            conn.commit()
-            logging.info(f"Database updated for job: {job_data['company']} - {job_data['position']}")
-        except sqlite3.Error as e:
-            logging.error(f"Database error: {e}")
-            conn.rollback()
-        finally:
-            conn.close()
 
     def parse_email(self, email_message):
         """
@@ -201,82 +177,217 @@ class EmailWatcher:
             logging.error(f"Error decoding payload: {e}")
             return ""
     
-    def interpret_email(self, email_data):
+    def setup_nlp(self):
+        """Set up NLP resources."""
+        self.stop_words = set(stopwords.words('english'))
+        self.punctuation = set(string.punctuation)
+        self.job_keywords = {
+            'application': ['application', 'applied', 'submit', 'consider'],
+            'interview': ['interview', 'meet', 'discuss', 'conversation'],
+            'offer': ['offer', 'congratulations', 'welcome', 'join'],
+            'rejection': ['unfortunately', 'regret', 'not selected', 'other candidates', 'sorry']
+        }
+
+    def generate_email_id(self, email_message):
+        """Generate a unique ID for an email."""
+        # Use a combination of subject, sender, and date to create a unique ID
+        subject = email_message.get("Subject", "")
+        sender = email_message.get("From", "")
+        date = email_message.get("Date", "")
+        unique_string = f"{subject}{sender}{date}".encode('utf-8')
+        return hashlib.md5(unique_string).hexdigest()
+
+    def is_email_processed(self, email_id):
+        """Check if an email has already been processed."""
+        conn = sqlite3.connect("job_applications.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM processed_emails WHERE email_id = ?", (email_id,))
+        result = cursor.fetchone()
+        conn.close()
+        return result is not None
+
+    def mark_email_as_processed(self, email_id, job_id):
+        """Mark an email as processed in the database."""
+        conn = sqlite3.connect("job_applications.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO processed_emails (email_id, job_id) VALUES (?, ?)", (email_id, job_id))
+        conn.commit()
+        conn.close()
+
+    def preprocess_text(self, text):
+        """Preprocess the text for NLP tasks."""
+        tokens = word_tokenize(text.lower())
+        tokens = [token for token in tokens if token not in self.stop_words and token not in self.punctuation]
+        return tokens
+
+    def extract_entities(self, text):
+        """Extract company and position from the text."""
+        company = "Unknown Company"
+        position = "Unknown Position"
+
+        company_patterns = [
+            r"(?i)from\s+([\w\s&]+)",
+            r"(?i)at\s+([\w\s&]+)",
+            r"(?i)([\w\s&]+)\s+is hiring",
+            r"(?i)join\s+([\w\s&]+)"
+        ]
+        for pattern in company_patterns:
+            match = re.search(pattern, text)
+            if match:
+                company = match.group(1).strip()
+                logging.debug(f"Extracted company: {company}")
+                break
+
+        position_patterns = [
+            r"(?i)for\s+([\w\s-]+)\s+position",
+            r"(?i)([\w\s-]+)\s+role",
+            r"(?i)hiring\s+(?:a|an)\s+([\w\s-]+)",
+            r"(?i)apply\s+for\s+([\w\s-]+)"
+        ]
+        for pattern in position_patterns:
+            match = re.search(pattern, text)
+            if match:
+                position = match.group(1).strip()
+                logging.debug(f"Extracted position: {position}")
+                break
+
+        return company, position
+
+    def determine_email_type(self, tokens):
+        """Determine the type of email based on keywords."""
+        scores = {category: 0 for category in self.job_keywords}
+        for token in tokens:
+            for category, keywords in self.job_keywords.items():
+                if token in keywords:
+                    if category == "application":
+                        scores[category] += 1
+                    else:
+                        scores[category] += 4
+        email_type = max(scores, key=scores.get)
+        logging.info(scores)
+        logging.debug(f"Determined email type: {email_type}")
+        return email_type
+
+    def interpret_email(self, email_data, email_id):
         """
         Interpret the email content to determine if it's job-related and extract information.
-
-        Args:
-            email_data (dict): Parsed email data.
-
-        Returns:
-            dict: Extracted job-related information or None if not job-related.
         """
-        keywords = ["application", "interview", "offer", "rejection", "job", "position"]
-        
-        if any(keyword in email_data["subject"].lower() for keyword in keywords) or \
-           any(keyword in email_data["body"].lower() for keyword in keywords):
-            # Extract company name (this is a simple example and may need refinement)
-            company_match = re.search(r"(?i)from\s+(.*?)\s", email_data["subject"])
-            company = company_match.group(1) if company_match else "Unknown Company"
-            
-            # Determine status
-            status = "Applied"
-            if "interview" in email_data["subject"].lower() or "interview" in email_data["body"].lower():
-                status = "Interview"
-            elif "offer" in email_data["subject"].lower() or "offer" in email_data["body"].lower():
-                status = "Offer"
-            elif "reject" in email_data["subject"].lower() or "reject" in email_data["body"].lower():
-                status = "Rejected"
+        subject_tokens = self.preprocess_text(email_data["subject"])
+        logging.debug(f"Preprocessed subject tokens: {subject_tokens}")
+        body_tokens = self.preprocess_text(email_data["body"])
+        logging.debug(f"Preprocessed body tokens: {body_tokens}")
+        all_tokens = subject_tokens + body_tokens
 
-            # Extract position (this is a simple example and may need refinement)
-            position_match = re.search(r"(?i)for\s+(.*?)\s+position", email_data["subject"])
-            position = position_match.group(1) if position_match else "Unknown Position"
+        job_related_score = sum(1 for token in all_tokens if any(token in keywords for keywords in self.job_keywords.values()))
+        logging.debug(f"Job-related score: {job_related_score}")
+        if job_related_score < 2:
+            logging.info(f"Email {email_id} not considered job-related")
+            return None
 
-            return {
-                "company": company,
-                "position": position,
-                "status": status,
-                "date": email_data["date"].strftime("%Y-%m-%d"),
-                "notes": f"Email subject: {email_data['subject']}\n\nEmail body: {email_data['body'][:500]}..."
-            }
-        return None
+        company, position = self.extract_entities(email_data["subject"] + " " + email_data["body"])
+
+        email_type = self.determine_email_type(all_tokens)
+        status_map = {
+            'application': 'Applied',
+            'interview': 'Interview',
+            'offer': 'Offer',
+            'rejection': 'Rejected'
+        }
+        status = status_map.get(email_type, 'Applied')
+
+        return {
+            "email_id": email_id,
+            "company": company,
+            "position": position,
+            "status": status,
+            "date": email_data["date"].strftime("%Y-%m-%d"),
+            "notes": f"Email type: {email_type}\nEmail subject: {email_data['subject']}\n\nEmail body: {email_data['body'][:500]}..."
+        }
+
+    def update_database(self, job_data):
+        """Update the job application database with extracted information."""
+        max_retries = 3
+        retry_delay = 1  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                conn = sqlite3.connect("job_applications.db", timeout=10)
+                cursor = conn.cursor()
+
+                # Check if the job already exists
+                cursor.execute("SELECT id, status, application_date FROM jobs WHERE company = ? AND position = ?", 
+                               (job_data["company"], job_data["position"]))
+                existing_job = cursor.fetchone()
+
+                if existing_job:
+                    job_id, current_status, existing_app_date = existing_job
+                    if job_data["status"] != current_status:
+                        cursor.execute("""
+                            UPDATE jobs 
+                            SET status = ?, last_updated = ?, notes = notes || '\n\n' || ?
+                            WHERE id = ?
+                        """, (job_data["status"], job_data["date"], job_data["notes"], job_id))
+                else:
+                    # Insert new job
+                    cursor.execute("""
+                        INSERT INTO jobs (company, position, status, application_date, last_updated, notes)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (job_data["company"], job_data["position"], job_data["status"], 
+                          job_data["date"], job_data["date"], job_data["notes"]))
+                    job_id = cursor.lastrowid
+
+                # Mark the email as processed
+                self.mark_email_as_processed(job_data["email_id"], job_id)
+
+                conn.commit()
+                logging.info(f"Database updated for job: {job_data['company']} - {job_data['position']}")
+                break  # Success, exit the retry loop
+            except sqlite3.Error as e:
+                logging.error(f"Database error (attempt {attempt + 1}): {e}")
+                if conn:
+                    conn.rollback()
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    logging.error("Max retries reached. Failed to update database.")
+            finally:
+                if conn:
+                    conn.close()
 
     def run(self):
-        """
-        Main method to run the email watcher.
-
-        This method connects to the email server, fetches new emails,
-        interprets them, and updates the database with job-related information.
-        """
-        if self.connect():
-            try:
+        """Main method to run the email watcher."""
+        try:
+            if self.connect():
                 logging.info("Starting to fetch new emails")
                 for email_message in self.fetch_new_emails():
                     if self.stop_flag:
                         break
-                    logging.info("Processing a new email")
-                    email_data = self.parse_email(email_message)
-                    if email_data:
-                        logging.info(f"Parsed email: Subject: {email_data['subject']}")
-                        job_data = self.interpret_email(email_data)
-                        if job_data:
-                            logging.info(f"Interpreted job data: Company: {job_data['company']}, Position: {job_data['position']}, Status: {job_data['status']}")
-                            self.update_database(job_data)
+                    email_id = self.generate_email_id(email_message)
+                    if not self.is_email_processed(email_id):
+                        logging.info(f"Processing new email: {email_id}")
+                        email_data = self.parse_email(email_message)
+                        if email_data:
+                            job_data = self.interpret_email(email_data, email_id)
+                            if job_data:
+                                self.update_database(job_data)
+                            else:
+                                logging.info("Email not interpreted as job-related")
                         else:
-                            logging.info("Email not interpreted as job-related")
+                            logging.warning("Failed to parse email")
                     else:
-                        logging.warning("Failed to parse email")
+                        logging.info(f"Email already processed: {email_id}")
                 logging.info("Finished processing emails")
                 self.save_last_checked_time()
-            except Exception as e:
-                logging.error(f"Error in email watcher run: {e}")
-                raise
-            finally:
+        except imaplib.IMAP4.error as e:
+            logging.error(f"IMAP4 error: {e}")
+        except ConnectionError as e:
+            logging.error(f"Connection error: {e}")
+        except Exception as e:
+            logging.error(f"Unexpected error: {e}")
+        finally:
+            if self.mail:
                 try:
                     self.mail.logout()
                     logging.info("Successfully logged out from email server")
                 except Exception as e:
                     logging.error(f"Error during logout: {e}")
-        else:
-            logging.error("Failed to connect to email server")
-            raise ConnectionError("Failed to connect to email server")

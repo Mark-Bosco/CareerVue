@@ -1,7 +1,6 @@
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 import json
-import os
 
 class EmailConfigDialog(ctk.CTkToplevel):
     """A dialog window for configuring email settings."""
