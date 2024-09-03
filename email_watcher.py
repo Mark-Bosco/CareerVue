@@ -11,7 +11,7 @@ import os
 import time
 import nltk
 from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
+from nltk.tokenize import word_tokenize, sent_tokenize
 import string
 import backoff
 from collections import Counter
@@ -50,6 +50,8 @@ class EmailWatcher:
         self.processed_hashes = set(hash[0] for hash in hashes)
         logging.info(f"Loaded {len(self.processed_hashes)} processed email hashes")
 
+    # Only for dev purpose
+    # In reality you don't want to readd seen and deleted emails
     def remove_processed_hash(self, email_hash):
         """Remove a processed hash from the cache."""
         if email_hash in self.processed_hashes:
@@ -193,21 +195,26 @@ class EmailWatcher:
             'application': ['application', 'applied', 'submit', 'consider'],
             'interview': ['interview', 'meet', 'discuss', 'conversation'],
             'offer': ['offer', 'congratulations', 'welcome', 'join'],
-            'rejection': ['unfortunately', 'regret', 'not selected', 'other candidates', 'sorry']
+            'rejection': ['unfortunately', 'regret', 'not','other', 'candidates', 'sorry']
         }
-        self.position_keywords = {
-            "Engineer": ["software", "systems", "data", "frontend", "backend", "full stack", "devops", "cloud", "machine learning", "ai"],
-            "Developer": ["web", "mobile", "app", "frontend", "backend", "full stack", "software"],
-            "Analyst": ["data", "business", "financial", "systems", "security"],
-            "Manager": ["project", "product", "technical", "engineering", "program"],
-            "Designer": ["ui", "ux", "user interface", "user experience", "graphic"],
-            "Scientist": ["data", "research", "machine learning"],
-            "Administrator": ["system", "database", "network"],
-            "Architect": ["software", "systems", "solutions", "enterprise", "data"],
-            "Specialist": ["it", "security", "support", "qa", "quality assurance"],
-            "Consultant": ["it", "technology", "software", "management"],
-            "Intern": ["software", "data", "engineering", "research"]
-        }
+
+        self.position_keywords = [
+            "Software Engineer", "Data Scientist", "Machine Learning Engineer",
+            "Web Developer", "Mobile App Developer", "Systems Analyst",
+            "Database Administrator", "Cloud Engineer", "DevOps Engineer",
+            "Cybersecurity Analyst", "Full Stack Developer", "Frontend Developer",
+            "Backend Developer", "UI/UX Designer", "Network Engineer",
+            "AI Engineer", "Business Intelligence Analyst", "Game Developer",
+            "Embedded Systems Engineer", "Data Engineer", "IT Support Specialist",
+            "Technical Project Manager", "QA Engineer", "Quality Assurance Engineer",
+            "Site Reliability Engineer", "Software Architect", "Solutions Architect",
+            "Product Manager", "Scrum Master", "Agile Coach", "Data Analyst",
+            "Business Analyst", "Systems Administrator", "Network Administrator",
+            "Information Security Analyst", "Cloud Architect", "Big Data Engineer",
+            "Blockchain Developer", "IoT Developer", "AR/VR Developer",
+            "Technical Writer", "IT Consultant", "Technology Consultant"
+        ]
+
         self.common_company_suffixes = [
             "Inc", "LLC", "Ltd", "Limited", "Corp", "Corporation", "Co", "Company",
             "GmbH", "AG", "SA", "NV", "PLC", "Group", "Holdings", "Ventures"
@@ -221,12 +228,19 @@ class EmailWatcher:
 
     def determine_entities(self, tokens, email_data):
         """Determine the type of email and position based on keywords."""
-        type_scores = {category: 0 for category in self.job_keywords}
-        position_scores = Counter()
+        
+        email_type = self.extract_email_type(tokens)
+        position = self.extract_position(email_data)
+        company = self.extract_company(email_data)
 
-        # Combine tokens from subject and body
-        all_text = f"{email_data['subject']} {email_data['body']}"
-        all_tokens = word_tokenize(all_text.lower())
+        logging.debug(f"Determined email type: {email_type}")
+        logging.debug(f"Determined position: {position}")
+        logging.debug(f"Determined company: {company}")
+
+        return email_type, position, company
+    
+    def extract_email_type(self, tokens):
+        type_scores = {category: 0 for category in self.job_keywords}
 
         # Score email type
         for token in tokens:
@@ -237,27 +251,8 @@ class EmailWatcher:
                     else:
                         type_scores[category] += 4
 
-        # Score positions
-        for i in range(len(all_tokens) - 1):
-            bigram = f"{all_tokens[i]} {all_tokens[i+1]}"
-            for position, keywords in self.position_keywords.items():
-                if all_tokens[i] in keywords or bigram in keywords:
-                    position_scores[position] += 1
-
-        email_type = max(type_scores, key=type_scores.get)
-        
-        # Determine the most likely position
-        if position_scores:
-            position = position_scores.most_common(1)[0][0]
-        else:
-            position = "Unknown"
-
         logging.info(f"Type scores: {type_scores}")
-        logging.info(f"Position scores: {position_scores}")
-        logging.debug(f"Determined email type: {email_type}")
-        logging.debug(f"Determined position: {position}")
-
-        return email_type, position
+        return max(type_scores, key=type_scores.get)
 
     def extract_company(self, email_data):
         """Extract the company name from the email data."""
@@ -299,6 +294,51 @@ class EmailWatcher:
             logging.warning("No company name extracted")
             return "Unknown"
 
+    def extract_position(self, email_data):
+        """Extract the job position from the email data."""
+        full_text = f"{email_data['subject']} {email_data['body']}"
+        sentences = sent_tokenize(full_text)
+
+        # Function to check if a position is in a sentence
+        def position_in_sentence(position, sentence):
+            return position.lower() in sentence.lower()
+
+        # First, try to find an exact match
+        for position in self.position_keywords:
+            if any(position_in_sentence(position, sentence) for sentence in sentences):
+                return position
+
+        # If no exact match, try to find partial matches
+        words = word_tokenize(full_text.lower())
+        bigrams = list(nltk.bigrams(words))
+        trigrams = list(nltk.trigrams(words))
+
+        position_scores = Counter()
+
+        for position in self.position_keywords:
+            position_lower = position.lower()
+            position_words = position_lower.split()
+
+            # Check for full position match in bigrams and trigrams
+            if len(position_words) == 2:
+                position_scores[position] += bigrams.count(tuple(position_words))
+            elif len(position_words) == 3:
+                position_scores[position] += trigrams.count(tuple(position_words))
+
+            # Check for partial matches
+            for i in range(len(position_words)):
+                for j in range(i + 1, len(position_words) + 1):
+                    partial = " ".join(position_words[i:j])
+                    position_scores[position] += words.count(partial)
+
+        # Get the position with the highest score
+        if position_scores:
+            best_position = max(position_scores, key=position_scores.get)
+            if position_scores[best_position] > 0:
+                return best_position
+
+        return "Unknown Position"
+
     def generate_email_hash(self, email_data):
         """Generate a unique hash for an email."""
         hash_input = f"{email_data['subject']}{email_data['sender']}{email_data['date']}"
@@ -325,6 +365,8 @@ class EmailWatcher:
         else:
             logging.warning("Failed to parse email")
 
+    # Create function for job relateed score
+
     def interpret_email(self, email_data, email_hash):
         """
         Interpret the email content to determine if it's job-related and extract information.
@@ -339,8 +381,7 @@ class EmailWatcher:
             logging.info(f"Email not considered job-related")
             return None
 
-        email_type, position = self.determine_entities(all_tokens, email_data)
-        company = self.extract_company(email_data)
+        email_type, position, company = self.determine_entities(all_tokens, email_data)
         
         status_map = {
             'application': 'Applied',
