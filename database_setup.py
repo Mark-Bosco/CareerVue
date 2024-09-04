@@ -34,7 +34,8 @@ def main():
         application_date TEXT,
         last_updated TEXT,
         notes TEXT,
-        email_hash TEXT UNIQUE
+        email_hash TEXT UNIQUE,
+        updated INTEGER DEFAULT 0
     );
     """
 

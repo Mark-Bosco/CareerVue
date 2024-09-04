@@ -4,7 +4,6 @@ import email
 from email.header import decode_header
 import datetime
 import sqlite3
-import re
 import logging
 import json
 import os
@@ -33,7 +32,6 @@ class EmailWatcher:
         self.inbox = inbox
         self.imap_server = imap_server
         self.mail = None
-        self.setup_logging()
         self.last_checked = self.load_last_checked_time()
         self.stop_flag = False
         self.setup_nlp()
@@ -49,11 +47,6 @@ class EmailWatcher:
         conn.close()
         self.processed_hashes = set(hash[0] for hash in hashes)
         logging.info(f"Loaded {len(self.processed_hashes)} processed email hashes")
-            
-    def setup_logging(self):
-        """Configure logging for the EmailWatcher."""
-        logging.basicConfig(filename='email_watcher.log', level=logging.DEBUG,
-                            format='%(asctime)s - %(levelname)s - %(message)s')
 
     def load_last_checked_time(self):
         """
@@ -182,10 +175,10 @@ class EmailWatcher:
         self.stop_words = set(stopwords.words('english'))
         self.punctuation = set(string.punctuation)
         self.job_keywords = {
-            'application': ['application', 'applied', 'submit', 'consider'],
-            'interview': ['interview', 'meet', 'discuss', 'conversation'],
-            'offer': ['offer', 'congratulations', 'welcome', 'join'],
-            'rejection': ['unfortunately', 'regret', 'not','other', 'candidates', 'sorry']
+            'application': ['application', 'soon', 'applied', 'submit', 'consider', 'job', 'opening', 'position', 'role', 'opportunity', 'resume', 'cv', 'cover', 'letter'],
+            'interview': ['interview', 'meet', 'discuss', 'conversation', 'call', 'schedule', 'talk', 'chat', 'screen', 'assessment', 'exam', 'test', 'assignment'],
+            'offer': ['offer', 'congratulations', 'welcome', 'join', 'hired', 'contract', 'position', 'role', 'start', 'compensation', 'benefits', 'package', 'happy', 'excited'],
+            'rejection': ['unfortunately', 'regret', 'not','other', 'candidates', 'sorry', 'better', 'fit', 'qualified', 'experience', 'skills', 'background', 'hope']
         }
 
         self.position_keywords = [
@@ -398,8 +391,9 @@ class EmailWatcher:
                 conn = sqlite3.connect("job_applications.db", timeout=10)
                 cursor = conn.cursor()
 
-                # Check if the job already exists based on email_hash
-                cursor.execute("SELECT id, status FROM jobs WHERE email_hash = ?", (job_data["email_hash"],))
+                # Check if the job already exists based on company and position
+                cursor.execute("SELECT id, status FROM jobs WHERE company = ? AND position = ?", 
+                               (job_data["company"], job_data["position"]))
                 existing_job = cursor.fetchone()
 
                 if existing_job:
@@ -407,14 +401,20 @@ class EmailWatcher:
                     if job_data["status"] != current_status:
                         cursor.execute("""
                             UPDATE jobs 
-                            SET status = ?, last_updated = ?, notes = notes || '\n\n' || ?
+                            SET status = ?, last_updated = ?, notes = notes || '\n\n' || ?, updated = 1
                             WHERE id = ?
                         """, (job_data["status"], job_data["date"], job_data["notes"], job_id))
+                    else:
+                        cursor.execute("""
+                            UPDATE jobs 
+                            SET last_updated = ?, notes = notes || '\n\n' || ?
+                            WHERE id = ?
+                        """, (job_data["date"], job_data["notes"], job_id))
                 else:
                     # Insert new job
                     cursor.execute("""
-                        INSERT INTO jobs (company, position, status, application_date, last_updated, notes, email_hash)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO jobs (company, position, status, application_date, last_updated, notes, email_hash, updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
                     """, (job_data["company"], job_data["position"], job_data["status"], 
                           job_data["date"], job_data["date"], job_data["notes"], job_data["email_hash"]))
                     job_id = cursor.lastrowid

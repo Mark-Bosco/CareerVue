@@ -1,8 +1,8 @@
 ### To Do
-- Mark updated emails
 - Color code based on status
-- Home screen needs to auto refresh after statup email check
-- Ensure emails that match en existing entries company and position update it 
-- Determine how far back it checks on refresh and adjust if needed (last checked logic)
+- Check for unneeded connection tests
+- Configurable refresh rate, how far back to check, keywords
+- Read emails in, then archive them afterwards only if they are job related.
 
 ### Notes
+- logging: info, warning, error, critical
