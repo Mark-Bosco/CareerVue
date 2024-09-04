@@ -49,16 +49,6 @@ class EmailWatcher:
         conn.close()
         self.processed_hashes = set(hash[0] for hash in hashes)
         logging.info(f"Loaded {len(self.processed_hashes)} processed email hashes")
-
-    # Only for dev purpose
-    # In reality you don't want to readd seen and deleted emails
-    def remove_processed_hash(self, email_hash):
-        """Remove a processed hash from the cache."""
-        if email_hash in self.processed_hashes:
-            self.processed_hashes.remove(email_hash)
-            logging.info(f"Removed hash {email_hash} from processed hashes")
-        else:
-            logging.warning(f"Attempted to remove non-existent hash {email_hash} from processed hashes")
             
     def setup_logging(self):
         """Configure logging for the EmailWatcher."""
@@ -364,8 +354,6 @@ class EmailWatcher:
                 logging.info(f"Email with hash {email_hash} has already been processed")
         else:
             logging.warning("Failed to parse email")
-
-    # Create function for job relateed score
 
     def interpret_email(self, email_data, email_hash):
         """
