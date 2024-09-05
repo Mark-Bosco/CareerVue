@@ -44,10 +44,11 @@ class HomeScreen(ctk.CTk):
         self.geometry("1200x600")
 
         # Configure main grid
-        self.grid_columnconfigure(
-            0, weight=1
-        )  # Allow main frame to expand horizontally
+        self.grid_columnconfigure(0, weight=1)  # Allow main frame to expand horizontally
         self.grid_rowconfigure(1, weight=1)  # Allow jobs frame to expand vertically
+
+        # Load user preferences
+        self.load_preferences()
 
         # Initialize variables
         self.job_rows = {}  # Dictionary to store job rows by job ID
@@ -60,6 +61,7 @@ class HomeScreen(ctk.CTk):
         self.setup_header_frame()
         self.setup_main_frame()
         self.setup_jobs_frame()
+        self.setup_preferences_frame()
 
         # Load email configuration
         self.config = self.load_config()
@@ -74,6 +76,50 @@ class HomeScreen(ctk.CTk):
         # Refresh job list
         logging.info("Refreshing job list.")
         self.refresh_jobs()
+
+    def load_preferences(self):
+        """Load user preferences from a JSON file."""
+        try:
+            with open("user_preferences.json", "r") as f:
+                self.preferences = json.load(f)
+        except FileNotFoundError:
+            self.preferences = {"auto_check_interval": 600}
+            self.save_preferences()
+    
+    def save_preferences(self):
+        """Save user preferences to a JSON file."""
+        with open("user_preferences.json", "w") as f:
+            json.dump(self.preferences, f)
+
+    def setup_preferences_frame(self):
+        """Set up the preferences frame."""
+        self.preferences_frame = ctk.CTkFrame(self)
+        self.preferences_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+
+        # Auto-check interval preference
+        ctk.CTkLabel(self.preferences_frame, text="Auto-check interval (minutes):").grid(row=1, column=0, padx=5, pady=5)
+        self.auto_check_entry = ctk.CTkEntry(self.preferences_frame, width=50)
+        self.auto_check_entry.insert(0, str(self.preferences["auto_check_interval"] // 60))
+        self.auto_check_entry.grid(row=1, column=1, padx=5, pady=5)
+
+        # Save preferences button
+        save_button = ctk.CTkButton(self.preferences_frame, text="Save Preferences", command=self.save_preferences_callback)
+        save_button.grid(row=3, column=0, columnspan=2, padx=5, pady=5)
+
+    def save_preferences_callback(self):
+        """Save user preferences and update the email watcher."""
+        try:
+            self.preferences["sync_days"] = int(self.sync_days_entry.get())
+            self.preferences["auto_check_interval"] = int(self.auto_check_entry.get()) * 60
+            self.save_preferences()
+            
+            # Restart the email watcher with new preferences
+            self.stop_email_watcher()
+            self.start_email_watcher()
+            
+            CTkMessagebox(title="Success", message="Preferences saved successfully!", icon="info")
+        except ValueError:
+            CTkMessagebox(title="Error", message="Please enter valid numbers for sync days and auto-check interval.", icon="cancel")
 
     def setup_logging(self):
         """Configure logging for the app."""
@@ -255,15 +301,14 @@ class HomeScreen(ctk.CTk):
                 logging.error(f"An error occurred: {e}")
                 self.after(0, self.status_indicator.configure(text_color="red"))
             finally:
-                # Sleep for 10 minutes before checking again
-                time.sleep(600)
+                 time.sleep(self.preferences["auto_check_interval"])
         
     def load_sync_time(self):
         """Get the last checked time from the file."""
         try:
             with open('last_checked.json', 'r') as f:
                 data = json.load(f)
-                return datetime.fromisoformat(data['last_checked']) - timedelta(days=1)
+                return datetime.fromisoformat(data['last_checked'])
         except (FileNotFoundError, json.JSONDecodeError):
             # Default to 1 day ago if no last checked time is found or if there's an error
             return datetime.now() - timedelta(days=1)
@@ -357,6 +402,8 @@ class HomeScreen(ctk.CTk):
             self.update_job_row(job_id, field, value)
             if field != "notes":
                 self.update_job_row(job_id, "last_updated", current_date)
+            if field == "status":
+                self.update_status_color(self.job_rows[job_id]["status"], value)
             logging.info(f"Updated job {job_id} field {field} to {value}")
         except sqlite3.Error as e:
             logging.error(f"An error occurred while updating the job: {e}")
@@ -435,6 +482,8 @@ class HomeScreen(ctk.CTk):
         status_dropdown = ctk.CTkOptionMenu(self.jobs_frame, variable=status_var, values=["Applied", "Interview", "Offer", "Rejected"], width=100)
         status_dropdown.grid(row=row, column=2, padx=5, pady=(10, 2), sticky="ew")
         status_dropdown.configure(command=lambda v, j=job_id: self.update_job(j, "status", v))
+        # Set color based on status
+        self.update_status_color(status_dropdown, status)
 
         # Application Date
         app_date_entry = ctk.CTkEntry(self.jobs_frame, width=100)
@@ -457,6 +506,11 @@ class HomeScreen(ctk.CTk):
         # Store references to row widgets
         self.job_rows[job_id] = {"row": row, "update_indicator": update_indicator, "company": company_entry, "position": position_entry, "status": status_dropdown, 
                                 "application_date": app_date_entry, "last_updated": last_updated_label, "notes": notes_button, "delete": delete_button}
+
+    def update_status_color(self, dropdown, status):
+        """Update the color of the status dropdown based on the current status."""
+        color_map = {"Applied": "blue", "Interview": "orange", "Offer": "green", "Rejected": "red"}
+        dropdown.configure(fg_color=color_map.get(status, "gray"))
 
     def update_job_row(self, job_id, field, value):
         """Update a specific field in a job row on the home screen."""

@@ -336,9 +336,9 @@ class EmailWatcher:
             if job_data:
                 self.update_database(job_data)
             else:
-                logging.debug("Email not interpreted as job-related")
+                logging.debug(f"Email {email_id} not interpreted as job-related")
         else:
-            logging.warning("Failed to parse email")
+            logging.warning(f"Failed to parse email {email_id}")
 
     def run(self, last_checked):
         """Main method to run the email watcher."""
