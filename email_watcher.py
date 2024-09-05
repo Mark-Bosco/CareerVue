@@ -112,10 +112,10 @@ class EmailWatcher:
 
         # Define keywords for different types of job-related emails
         self.job_keywords = {
-            "application": ["application", "soon", "applied","submit", "consider", "job", "opening", "position", "role", "opportunity", "resume", "cv","cover", "letter",],
-            "interview": ["interview", "meet", "discuss", "conversation", "call", "schedule", "talk", "chat", "screen", "assessment", "exam", "test", "assignment",],
-            "offer": ["offer", "congratulations", "welcome", "join", "hired","contract", "position", "role", "start", "compensation","benefits", "package", "happy","excited",],
-            "rejection": ["unfortunately", "regret", "not", "other", "candidates", "sorry", "better", "fit", "qualified", "experience", "skills", "background", "hope",],
+            "application": ["application", "applied", "consider", "job", "opening", "position", "role", "resume", "cv",],
+            "interview": ["interview", "meet", "conversation", "call", "schedule", "talk", "chat", "screen", "assessment",],
+            "offer": ["offer", "congratulations", "welcome", "join", "hired","contract", "role", "start",],
+            "rejection": ["unfortunately", "regret", "other", "candidates", "sorry", "qualified", "experience", "skills", "background",],
         }
         
         # Define keywords for different types of job-related emails
@@ -269,7 +269,7 @@ class EmailWatcher:
         all_tokens = subject_tokens + body_tokens
 
         job_related_score = sum(1 for token in all_tokens if any(token in keywords for keywords in self.job_keywords.values()))
-        if job_related_score < 2:
+        if job_related_score <= 5:
             return None
 
         email_type, position, company = self.determine_entities(all_tokens, email_data)
@@ -297,30 +297,48 @@ class EmailWatcher:
             conn = sqlite3.connect("job_applications.db", timeout=10)
             cursor = conn.cursor()
 
-            # Check if the job already exists and if it's marked as deleted
-            cursor.execute("SELECT id, status, is_deleted FROM jobs WHERE company = ? AND position = ?", 
-                           (job_data["company"], job_data["position"]))
+            # Check if the job already exists based on NLP-extracted company and position
+            cursor.execute("""
+                SELECT id, status, is_deleted, company, position 
+                FROM jobs 
+                WHERE nlp_company = ? AND nlp_position = ?
+            """, (job_data["company"], job_data["position"]))
             existing_job = cursor.fetchone()
 
             if existing_job:
-                job_id, current_status, is_deleted = existing_job
+                job_id, current_status, is_deleted, current_company, current_position = existing_job
 
                 if is_deleted:
                     logging.debug(f"Job {job_data['company']} - {job_data['position']} was previously deleted. Skipping update.")
                     return
             
                 if job_data["status"] != current_status:
-                    cursor.execute("""UPDATE jobs SET status = ?, last_updated = ?, notes = notes || '\n\n' || ?, updated = 1 WHERE id = ?""", 
-                                   (job_data["status"], job_data["date"], job_data["notes"], job_id))
+                    cursor.execute("""
+                        UPDATE jobs 
+                        SET status = ?, last_updated = ?, notes = notes || '\n\n' || ?, updated = 1,
+                            nlp_company = ?, nlp_position = ?
+                        WHERE id = ?
+                    """, (job_data["status"], job_data["date"], job_data["notes"], 
+                          job_data["company"], job_data["position"], job_id))
                 else:
-                    cursor.execute("""UPDATE jobs SET last_updated = ?, notes = notes || '\n\n' || ? WHERE id = ?""",
-                        (job_data["date"], job_data["notes"], job_id))
+                    cursor.execute("""
+                        UPDATE jobs 
+                        SET last_updated = ?, notes = notes || '\n\n' || ?,
+                            nlp_company = ?, nlp_position = ?
+                        WHERE id = ?
+                    """, (job_data["date"], job_data["notes"], 
+                          job_data["company"], job_data["position"], job_id))
+                
+                logging.debug(f"Updated existing job: {current_company} - {current_position}")
             else:
                 # Insert new job
-                cursor.execute("""INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted) 
-                                  VALUES (?, ?, ?, ?, ?, ?, 0, 0)""", 
-                               (job_data["company"], job_data["position"], job_data["status"], job_data["date"], job_data["date"], job_data["notes"]))
+                cursor.execute("""
+                    INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted, nlp_company, nlp_position) 
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
+                """, (job_data["company"], job_data["position"], job_data["status"], job_data["date"], 
+                      job_data["date"], job_data["notes"], job_data["company"], job_data["position"]))
                 job_id = cursor.lastrowid
+                logging.debug(f"Inserted new job: {job_data['company']} - {job_data['position']}")
 
             conn.commit()
             logging.debug(f"Database updated for job: {job_data['company']} - {job_data['position']}")
@@ -332,6 +350,7 @@ class EmailWatcher:
         finally:
             if conn:
                 conn.close()
+
 
     def process_email(self, email_id, email_message):
         """Process a single email message."""

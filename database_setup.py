@@ -36,7 +36,9 @@ def initialize_database():
         last_updated TEXT,
         notes TEXT,
         updated INTEGER DEFAULT 0,
-        is_deleted INTEGER DEFAULT 0
+        is_deleted INTEGER DEFAULT 0,
+        nlp_company TEXT,
+        nlp_position TEXT
     );
     """
 
