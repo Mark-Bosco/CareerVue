@@ -4,6 +4,7 @@ class NotesWindow(ctk.CTkToplevel):
     """A window for displaying and editing job notes."""
 
     def __init__(self, parent, job_id, notes):
+        """Initialize the notes window."""
         super().__init__(parent)
         self.title("Job Notes")
         self.geometry("400x300")

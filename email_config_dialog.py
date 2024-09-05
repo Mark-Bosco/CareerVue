@@ -6,6 +6,7 @@ class EmailConfigDialog(ctk.CTkToplevel):
     """A dialog window for configuring email settings."""
 
     def __init__(self, parent, config=None):
+        # Initialize the dialog window
         super().__init__(parent)
         self.parent = parent
         self.title("Email Configuration")
@@ -78,7 +79,6 @@ class EmailConfigDialog(ctk.CTkToplevel):
             self.on_closing()
         else:
             CTkMessagebox(title="Error", message="Please fill in all fields.", icon="cancel")
-
 
     def on_closing(self):
         """Handle window closing event."""

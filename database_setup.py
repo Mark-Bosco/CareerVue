@@ -23,6 +23,7 @@ def create_table(conn, create_table_sql):
         print(f"Error creating table: {e}")
 
 def main():
+    ''' Create a database connection and create a new table '''
     database = "job_applications.db"
 
     sql_create_jobs_table = """
@@ -34,7 +35,6 @@ def main():
         application_date TEXT,
         last_updated TEXT,
         notes TEXT,
-        email_hash TEXT UNIQUE,
         updated INTEGER DEFAULT 0
     );
     """
