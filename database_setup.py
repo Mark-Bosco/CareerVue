@@ -35,7 +35,8 @@ def main():
         application_date TEXT,
         last_updated TEXT,
         notes TEXT,
-        updated INTEGER DEFAULT 0
+        updated INTEGER DEFAULT 0,
+        is_deleted INTEGER DEFAULT 0
     );
     """
 

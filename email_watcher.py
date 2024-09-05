@@ -297,13 +297,18 @@ class EmailWatcher:
             conn = sqlite3.connect("job_applications.db", timeout=10)
             cursor = conn.cursor()
 
-            # Check if the job already exists based on company and position
-            cursor.execute("SELECT id, status FROM jobs WHERE company = ? AND position = ?", 
+            # Check if the job already exists and if it's marked as deleted
+            cursor.execute("SELECT id, status, is_deleted FROM jobs WHERE company = ? AND position = ?", 
                            (job_data["company"], job_data["position"]))
             existing_job = cursor.fetchone()
 
             if existing_job:
-                job_id, current_status = existing_job
+                job_id, current_status, is_deleted = existing_job
+
+                if is_deleted:
+                    logging.debug(f"Job {job_data['company']} - {job_data['position']} was previously deleted. Skipping update.")
+                    return
+            
                 if job_data["status"] != current_status:
                     cursor.execute("""UPDATE jobs SET status = ?, last_updated = ?, notes = notes || '\n\n' || ?, updated = 1 WHERE id = ?""", 
                                    (job_data["status"], job_data["date"], job_data["notes"], job_id))
@@ -312,8 +317,8 @@ class EmailWatcher:
                         (job_data["date"], job_data["notes"], job_id))
             else:
                 # Insert new job
-                cursor.execute("""INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated) 
-                                  VALUES (?, ?, ?, ?, ?, ?, 0)""", 
+                cursor.execute("""INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted) 
+                                  VALUES (?, ?, ?, ?, ?, ?, 0, 0)""", 
                                (job_data["company"], job_data["position"], job_data["status"], job_data["date"], job_data["date"], job_data["notes"]))
                 job_id = cursor.lastrowid
 

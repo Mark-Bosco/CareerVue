@@ -73,10 +73,6 @@ class HomeScreen(ctk.CTk):
         logging.info("Starting email watcher.")
         self.start_email_watcher()
 
-        # Refresh job list
-        logging.info("Refreshing job list.")
-        self.refresh_jobs()
-
     def load_preferences(self):
         """Load user preferences from a JSON file."""
         try:
@@ -294,7 +290,6 @@ class HomeScreen(ctk.CTk):
                 logging.info("Running email watcher")
                 last_checked = self.load_sync_time()
                 self.email_watcher.run(last_checked)
-                self.after(0, self.update_sync_time)
                 self.after(0, self.refresh_jobs)
                 self.after(0, self.status_indicator.configure(text_color="green"))
             except Exception as e:
@@ -329,8 +324,9 @@ class HomeScreen(ctk.CTk):
         current_date = datetime.now().strftime("%Y-%m-%d")
         
         cursor.execute(
-            """INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            ("New Company", "New Position","Applied", current_date, current_date, "", 0,)
+            """INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("New Company", "New Position", "Applied", current_date, current_date, "", 0, 0)
         )
 
         job_id = cursor.lastrowid
@@ -341,27 +337,26 @@ class HomeScreen(ctk.CTk):
         logging.info(f"Added new job with ID {job_id}")
 
     def delete_job(self, job_id):
-        """Delete a job entry from the database and UI."""
-        confirm = CTkMessagebox(title="Confirm Deletion",message="Are you sure you want to delete this job?", icon="question", option_1="Yes", option_2="No")
+        """Mark a job entry as deleted in the database and remove it from the UI."""
+        confirm = CTkMessagebox(title="Confirm Deletion", message="Are you sure you want to delete this job?", icon="question", option_1="Yes", option_2="No")
 
         if confirm.get() == "Yes":
             conn = sqlite3.connect("job_applications.db")
             cursor = conn.cursor()
 
-            cursor.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-            result = cursor.fetchone()
-
-            if result:
-                # Delete the job from the database
-                cursor.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+            try:
+                # Mark the job as deleted in the database
+                cursor.execute("UPDATE jobs SET is_deleted = 1 WHERE id = ?", (job_id,))
                 conn.commit()
+                
                 # Remove the job row from the UI
                 self.remove_job_row(job_id)
-                logging.info(f"Deleted job with ID {job_id}")
-            else:
-                logging.warning(f"Attempted to delete non-existent job with ID {job_id}")
-
-            conn.close()
+                logging.info(f"Marked job with ID {job_id} as deleted and removed from UI")
+            except sqlite3.Error as e:
+                logging.error(f"Database error when deleting job {job_id}: {e}")
+                conn.rollback()
+            finally:
+                conn.close()
 
     def validate_and_update(self, job_id, field, value, widget):
         """Validate user input and update the job if valid."""
@@ -416,10 +411,10 @@ class HomeScreen(ctk.CTk):
         NotesWindow(self, job_id, notes)
 
     def refresh_jobs(self):
-        """Refresh the job list from the database."""
+        """Refresh the job list from the database, excluding deleted jobs."""
         conn = sqlite3.connect("job_applications.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM jobs ORDER BY last_updated DESC")
+        cursor.execute("SELECT * FROM jobs WHERE is_deleted = 0 ORDER BY last_updated DESC")
         jobs = cursor.fetchall()
         conn.close()
 
@@ -427,7 +422,7 @@ class HomeScreen(ctk.CTk):
         existing_job_ids = set(self.job_rows.keys())
 
         for job in jobs:
-            (job_id, company, position, status, app_date, last_updated, notes, updated) = job
+            (job_id, company, position, status, app_date, last_updated, notes, updated, _) = job
             if job_id not in self.job_rows:
                 self.add_job_row(job_id, company, position, status, app_date, last_updated, notes, updated)
                 logging.info(f"Added job with ID {job_id}")
@@ -442,9 +437,9 @@ class HomeScreen(ctk.CTk):
             # Once added or updated, remove from set
             existing_job_ids.discard(job_id)
 
-        # Remove any leftover jobs
+        # Remove any leftover jobs from the UI
         for job_id in existing_job_ids:
-            logging.info(f"Removing job with ID {job_id}")
+            logging.info(f"Removing job with ID {job_id} from UI")
             self.remove_job_row(job_id)
         
         logging.info("Job list refreshed.")
