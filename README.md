@@ -43,4 +43,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-CareerVue: Empowering your job search with intelligence and efficiency.
+Accelerate towards your future career, put your current job hunt in the rearview with CareerVue!
