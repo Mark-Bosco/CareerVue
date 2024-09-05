@@ -10,7 +10,7 @@ import os
 from email_watcher import EmailWatcher
 from notes_window import NotesWindow
 from email_config_dialog import EmailConfigDialog
-import database_setup
+from database_setup import initialize_database
 
 # Suppress PIL debug messages
 logging.getLogger('PIL').setLevel(logging.WARNING)
@@ -36,7 +36,7 @@ class HomeScreen(ctk.CTk):
 
         # Create database if it does not exist
         if not os.path.exists("job_applications.db"):
-            database_setup.main()
+            initialize_database()
             logging.info("Database created successfully.")
 
         # Set up main window title and size
@@ -68,10 +68,10 @@ class HomeScreen(ctk.CTk):
         if self.config == {}:
             logging.info("No email configuration found. Opening email config dialog.")
             self.open_email_config()
-
-        # Start email watcher
-        logging.info("Starting email watcher.")
-        self.start_email_watcher()
+        else:
+            # Start email watcher
+            logging.info("Starting email watcher.")
+            self.start_email_watcher()
 
     def load_preferences(self):
         """Load user preferences from a JSON file."""
