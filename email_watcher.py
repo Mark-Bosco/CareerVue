@@ -1,12 +1,8 @@
 import imaplib
 import email
 from email.header import decode_header
-import datetime
 import sqlite3
 import logging
-import json
-import os
-import time
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize, sent_tokenize
@@ -53,7 +49,6 @@ class EmailWatcher:
         try:
             self.mail.select(self.inbox)
             date_string = last_checked.strftime("%d-%b-%Y")
-            logging.debug(f"Fetching emails since: {last_checked}")
             _, search_data = self.mail.search(None, f'(SINCE "{date_string}")')
             for num in search_data[0].split():
                 try:
@@ -349,7 +344,7 @@ class EmailWatcher:
         """Main method to run the email watcher."""
         try:
             if self.connect():
-                logging.debug("Starting to fetch new emails")
+                logging.debug(f"Starting to fetch new emails since {last_checked}")
                 for email_id, email_message in self.fetch_new_emails(last_checked):
                     if self.stop_flag:
                         break
