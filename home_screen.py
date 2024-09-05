@@ -249,7 +249,6 @@ class HomeScreen(ctk.CTk):
                 last_checked = self.load_sync_time()
                 self.email_watcher.run(last_checked)
                 self.refresh_jobs()
-                self.update_sync_time()
                 self.status_indicator.configure(text_color="green")
                 CTkMessagebox(title="Success", message="Emails checked and jobs refreshed!", icon="info")
             except Exception as e:
