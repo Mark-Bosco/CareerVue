@@ -37,9 +37,60 @@ CareerVue is a sophisticated, AI-powered job application tracking system designe
 - **NLP Integration**: Advanced text processing using NLTK
 - **UI Design**: Responsive and accessible interface using CustomTkinter
 
-## 📄 License
+## 🚀 Getting Started
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### Prerequisites
+- Python 3.7 or higher
+- pip (Python package installer)
+
+### Installation
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/careervue.git
+   ```
+2. Navigate to the project directory:
+   ```
+   cd careervue
+   ```
+3. Install the required dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+
+### How to Use CareerVue
+
+1. **Launch the Application**
+   - Run `python home_screen.py` from the command line in the project directory.
+
+2. **Configure Email Integration**
+   - On first launch, you'll be prompted to set up your email configuration.
+   - Enter your email address, password, inbox name, and IMAP server details.
+
+3. **Add Job Applications**
+   - Click the "+" button to manually add a new job application.
+   - Fill in the company name, position, application date, and status.
+
+4. **Manage Applications**
+   - View all your applications in the main window.
+   - Click on any field to edit the information.
+   - Use the status dropdown to update the application status.
+
+5. **Add Notes**
+   - Click the "Notes" button for any application to add or edit detailed notes.
+
+6. **Automatic Email Scanning**
+   - CareerVue will periodically scan your email for new job-related messages.
+   - New applications or updates will be automatically added to your dashboard.
+
+7. **Refresh and Sync**
+   - Click the "Refresh" button to manually trigger an email check and update your dashboard.
+
+8. **Customize Settings**
+   - Adjust the auto-check interval in the preferences section at the bottom of the window.
+
+## 📄 Important Note
+
+CareerVue is currently in early development and testing phase. While functional, it may contain bugs and is subject to frequent updates and changes.
 
 ---
 
