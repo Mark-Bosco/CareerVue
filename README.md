@@ -88,7 +88,7 @@ CareerVue is a sophisticated, AI-powered job application tracking system designe
 8. **Customize Settings**
    - Adjust the auto-check interval in the preferences section at the bottom of the window.
 
-## 📄 Important Note
+## 🚨 Important Note
 
 CareerVue is currently in early development and testing phase. While functional, it may contain bugs and is subject to frequent updates and changes.
 
