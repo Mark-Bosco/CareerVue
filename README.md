@@ -14,7 +14,7 @@
 
 CareerVue is a sophisticated, AI-powered job application tracking system designed to streamline your job search process. Built with Python and leveraging advanced NLP techniques, CareerVue offers a seamless experience for managing your job applications, from initial submission to final offer.
 
-## 🌟 Key Features
+## 🌟 Features
 
 ### 🤖 Intelligent Email Integration
 - Automatically scans and categorizes job-related emails
@@ -98,7 +98,7 @@ CareerVue is a sophisticated, AI-powered job application tracking system designe
 
 ## 🚨 Important Note
 
-CareerVue is currently in early development and testing phase. While functional, it may contain bugs and is subject to frequent updates and changes.
+CareerVue is in early development and while functional, it may contain bugs.
 
 ---
 
