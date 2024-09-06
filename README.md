@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="./CV-Icon.png" alt="CareerVue Logo" width="400" height="400">
+</p>
+
+<p align="center">
+  <em>Careers in mirror are closer than they appear</em>
+</p>
+
 # CareerVue: Your Intelligent Job Application Tracker
 
 [![Python](https://img.shields.io/badge/Python-3.7%2B-blue)](https://www.python.org/downloads/)
@@ -94,4 +102,4 @@ CareerVue is currently in early development and testing phase. While functional,
 
 ---
 
-Put your current job hunt in the rearview with CareerVue!
+Put your job hunt in the rearview with CareerVue!
