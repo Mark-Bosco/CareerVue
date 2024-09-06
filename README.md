@@ -94,4 +94,4 @@ CareerVue is currently in early development and testing phase. While functional,
 
 ---
 
-Accelerate towards your future career, put your current job hunt in the rearview with CareerVue!
+Put your current job hunt in the rearview with CareerVue!
