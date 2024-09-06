@@ -348,16 +348,16 @@ class HomeScreen(ctk.CTk):
         current_date = datetime.now().strftime("%Y-%m-%d")
         
         cursor.execute(
-            """INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            ("New Company", "New Position", "Applied", current_date, current_date, "", 0, 0)
+            """INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted, nlp_company, nlp_position) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("New Company", "New Position", "Applied", current_date, current_date, "", 0, 0, "", "")
         )
 
         job_id = cursor.lastrowid
         conn.commit()
         conn.close()
 
-        self.add_job_row(job_id, "New Company", "New Position", "Applied", current_date, current_date, "", 0)
+        self.add_job_row(job_id, "New Company", "New Position", "Applied", current_date, current_date, "", 0, "", "")
         logging.info(f"Added new job with ID {job_id}")
 
     def delete_job(self, job_id):
