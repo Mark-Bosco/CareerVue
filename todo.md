@@ -1,4 +1,4 @@
 ### To Do
 - Configurable keywords
 - Replace window popups 
-- Clean deleted jobs over a day old
+- WARNING - Warning: Unhandled field 'nlp_position' in update_job_row
