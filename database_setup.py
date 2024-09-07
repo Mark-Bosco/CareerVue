@@ -38,7 +38,8 @@ def initialize_database():
         updated INTEGER DEFAULT 0,
         is_deleted INTEGER DEFAULT 0,
         nlp_company TEXT,
-        nlp_position TEXT
+        nlp_position TEXT,
+        is_user_added INTEGER DEFAULT 0
     );
     """
 
@@ -49,9 +50,6 @@ def initialize_database():
     if conn is not None:
         create_table(conn, sql_create_jobs_table)
         conn.close()
-        logging.info("Database connection closed.")
+        logging.info("Database created successfully.")
     else:
         logging.error("Error! Cannot create the database connection.")
-
-if __name__ == '__main__':
-    initialize_database()

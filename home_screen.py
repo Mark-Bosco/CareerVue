@@ -348,17 +348,17 @@ class HomeScreen(ctk.CTk):
         current_date = datetime.now().strftime("%Y-%m-%d")
         
         cursor.execute(
-            """INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted, nlp_company, nlp_position) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            ("New Company", "New Position", "Applied", current_date, current_date, "", 0, 0, "", "")
+            """INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted, nlp_company, nlp_position, is_user_added) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("New Company", "New Position", "Applied", current_date, current_date, "", 0, 0, "New Company", "New Position", 1)
         )
 
         job_id = cursor.lastrowid
         conn.commit()
         conn.close()
 
-        self.add_job_row(job_id, "New Company", "New Position", "Applied", current_date, current_date, "", 0, "", "")
-        logging.info(f"Added new job with ID {job_id}")
+        self.add_job_row(job_id, "New Company", "New Position", "Applied", current_date, current_date, "", 0, "New Company", "New Position", 1)
+        logging.info(f"Added new user job with ID {job_id}")
 
     def delete_job(self, job_id):
         """Mark a job entry as deleted in the database and remove it from the UI."""
@@ -417,9 +417,15 @@ class HomeScreen(ctk.CTk):
         try:
             current_date = datetime.now().strftime("%Y-%m-%d")
             
-            # For company and position, update the main fields, not the NLP fields
+            # Check if the job was user-added
+            cursor.execute("SELECT is_user_added FROM jobs WHERE id = ?", (job_id,))
+            is_user_added = cursor.fetchone()[0]
+
             if field in ['company', 'position']:
-                cursor.execute(f"UPDATE jobs SET {field} = ?, last_updated = ? WHERE id = ?", (value, current_date, job_id))
+                if is_user_added:
+                    cursor.execute(f"UPDATE jobs SET {field} = ?, nlp_{field} = ?, last_updated = ? WHERE id = ?", (value, value, current_date, job_id))
+                else:
+                    cursor.execute(f"UPDATE jobs SET {field} = ?, last_updated = ? WHERE id = ?", (value, current_date, job_id))
             else:
                 cursor.execute(f"UPDATE jobs SET {field} = ?, last_updated = ? WHERE id = ?", (value, current_date, job_id))
             
@@ -429,6 +435,8 @@ class HomeScreen(ctk.CTk):
                 self.update_job_row(job_id, "last_updated", current_date)
             if field == "status":
                 self.update_status_color(self.job_rows[job_id]["status"], value)
+            if field in ['company', 'position'] and is_user_added:
+                self.update_job_row(job_id, f"nlp_{field}", value)
             logging.info(f"Updated job {job_id} field {field} to {value}")
         except sqlite3.Error as e:
             logging.error(f"An error occurred while updating the job: {e}")
@@ -444,7 +452,7 @@ class HomeScreen(ctk.CTk):
         """Refresh the job list from the database, excluding deleted jobs."""
         conn = sqlite3.connect("job_applications.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT id, company, position, status, application_date, last_updated, notes, updated, nlp_company, nlp_position FROM jobs WHERE is_deleted = 0 ORDER BY last_updated DESC")
+        cursor.execute("SELECT id, company, position, status, application_date, last_updated, notes, updated, nlp_company, nlp_position, is_user_added FROM jobs WHERE is_deleted = 0 ORDER BY last_updated DESC")
         jobs = cursor.fetchall()
         conn.close()
 
@@ -452,9 +460,9 @@ class HomeScreen(ctk.CTk):
         existing_job_ids = set(self.job_rows.keys())
 
         for job in jobs:
-            (job_id, company, position, status, app_date, last_updated, notes, updated, nlp_company, nlp_position) = job
+            (job_id, company, position, status, app_date, last_updated, notes, updated, nlp_company, nlp_position, is_user_added) = job
             if job_id not in self.job_rows:
-                self.add_job_row(job_id, company, position, status, app_date, last_updated, notes, updated, nlp_company, nlp_position)
+                self.add_job_row(job_id, company, position, status, app_date, last_updated, notes, updated, nlp_company, nlp_position, is_user_added)
                 logging.info(f"Added job with ID {job_id}")
             else:
                 self.update_job_row(job_id, "company", company)
@@ -465,6 +473,7 @@ class HomeScreen(ctk.CTk):
                 self.update_job_row(job_id, "updated", updated)
                 self.update_job_row(job_id, "nlp_company", nlp_company)
                 self.update_job_row(job_id, "nlp_position", nlp_position)
+                self.update_job_row(job_id, "is_user_added", is_user_added)
                 logging.info(f"Updated job with ID {job_id}")
             # Once added or updated, remove from set
             existing_job_ids.discard(job_id)
@@ -477,7 +486,7 @@ class HomeScreen(ctk.CTk):
         logging.info("Job list refreshed.")
         self.update_sync_time()
 
-    def add_job_row(self, job_id, company, position, status, app_date, last_updated, notes, updated, nlp_company, nlp_position):
+    def add_job_row(self, job_id, company, position, status, app_date, last_updated, notes, updated, nlp_company, nlp_position, is_user_added):
         """Add a new job row to the UI."""
         row = self.next_row
         self.next_row += 1
@@ -542,7 +551,8 @@ class HomeScreen(ctk.CTk):
             "notes": notes_button,
             "delete": delete_button,
             "nlp_company": nlp_company,
-            "nlp_position": nlp_position
+            "nlp_position": nlp_position,
+            "is_user_added": is_user_added
         }
 
     def update_status_color(self, dropdown, status):
