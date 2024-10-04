@@ -1,5 +1,7 @@
 ### To Do
-- Configurable keywords
-- Replace window popups 
-- On auto added jobs, give users option to block certain senders
-    - "Ignore emails from [sender]"
+- Loading icon
+- Distinguish jobs with unknown positions
+- Optionally archive non-job related emails?
+- Confirm if JSON bug is fixed 
+- Reorganize code
+- Update README

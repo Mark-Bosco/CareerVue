@@ -12,8 +12,11 @@ from notes_window import NotesWindow
 from email_config_dialog import EmailConfigDialog
 from database_setup import initialize_database
 
-# Suppress PIL debug messages
+# Suppress debug messages
 logging.getLogger('PIL').setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 class HomeScreen(ctk.CTk):
     """The main application window for the job tracker."""
@@ -37,7 +40,6 @@ class HomeScreen(ctk.CTk):
         # Create database if it does not exist
         if not os.path.exists("job_applications.db"):
             initialize_database()
-            logging.info("Database created successfully.")
 
         # Purge deleted jobs from the database
         self.delete_old_entries()
@@ -77,7 +79,7 @@ class HomeScreen(ctk.CTk):
             self.start_email_watcher()
 
     def delete_old_entries(self):
-        """Delete entries marked as deleted that are older than last_checked_date - 1 day."""
+        """Delete entries marked as deleted that are older than last_checked_date - 1 day so they are not readded"""
         conn = sqlite3.connect("job_applications.db")
         cursor = conn.cursor()
 
@@ -105,7 +107,7 @@ class HomeScreen(ctk.CTk):
             with open("user_preferences.json", "r") as f:
                 self.preferences = json.load(f)
         except FileNotFoundError:
-            self.preferences = {"auto_check_interval": 600}
+            self.preferences = {"auto_check_interval": 6000}
             self.save_preferences()
     
     def save_preferences(self):
@@ -329,8 +331,8 @@ class HomeScreen(ctk.CTk):
                 data = json.load(f)
                 return datetime.fromisoformat(data['last_checked'])
         except (FileNotFoundError, json.JSONDecodeError):
-            # Default to 1 day ago if no last checked time is found or if there's an error
-            return datetime.now() - timedelta(days=1)
+            # Default to 7 day ago if no last checked time is found or if there's an error
+            return datetime.now() - timedelta(days=7)
 
     def stop_email_watcher(self):
         """Stop the current email watcher thread."""
@@ -348,17 +350,17 @@ class HomeScreen(ctk.CTk):
         current_date = datetime.now().strftime("%Y-%m-%d")
         
         cursor.execute(
-            """INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted, nlp_company, nlp_position, is_user_added) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            ("New Company", "New Position", "Applied", current_date, current_date, "", 0, 0, "New Company", "New Position", 1)
+            """INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("New Company", "New Position", "Applied", current_date, current_date, "", 0, 0)
         )
 
         job_id = cursor.lastrowid
         conn.commit()
         conn.close()
 
-        self.add_job_row(job_id, "New Company", "New Position", "Applied", current_date, current_date, "", 0, "New Company", "New Position", 1)
-        logging.info(f"Added new user job with ID {job_id}")
+        self.add_job_row(job_id, "New Company", "New Position", "Applied", current_date, current_date, "")
+        logging.info(f"Added new job with ID {job_id}")
 
     def delete_job(self, job_id):
         """Mark a job entry as deleted in the database and remove it from the UI."""
@@ -417,17 +419,7 @@ class HomeScreen(ctk.CTk):
         try:
             current_date = datetime.now().strftime("%Y-%m-%d")
             
-            # Check if the job was user-added
-            cursor.execute("SELECT is_user_added FROM jobs WHERE id = ?", (job_id,))
-            is_user_added = cursor.fetchone()[0]
-
-            if field in ['company', 'position']:
-                if is_user_added:
-                    cursor.execute(f"UPDATE jobs SET {field} = ?, nlp_{field} = ?, last_updated = ? WHERE id = ?", (value, value, current_date, job_id))
-                else:
-                    cursor.execute(f"UPDATE jobs SET {field} = ?, last_updated = ? WHERE id = ?", (value, current_date, job_id))
-            else:
-                cursor.execute(f"UPDATE jobs SET {field} = ?, last_updated = ? WHERE id = ?", (value, current_date, job_id))
+            cursor.execute(f"UPDATE jobs SET {field} = ?, last_updated = ? WHERE id = ?", (value, current_date, job_id))
             
             conn.commit()
             self.update_job_row(job_id, field, value)
@@ -435,8 +427,6 @@ class HomeScreen(ctk.CTk):
                 self.update_job_row(job_id, "last_updated", current_date)
             if field == "status":
                 self.update_status_color(self.job_rows[job_id]["status"], value)
-            if field in ['company', 'position'] and is_user_added:
-                self.update_job_row(job_id, f"nlp_{field}", value)
             logging.info(f"Updated job {job_id} field {field} to {value}")
         except sqlite3.Error as e:
             logging.error(f"An error occurred while updating the job: {e}")
@@ -452,7 +442,7 @@ class HomeScreen(ctk.CTk):
         """Refresh the job list from the database, excluding deleted jobs."""
         conn = sqlite3.connect("job_applications.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT id, company, position, status, application_date, last_updated, notes, updated, nlp_company, nlp_position, is_user_added FROM jobs WHERE is_deleted = 0 ORDER BY last_updated DESC")
+        cursor.execute("SELECT id, company, position, status, application_date, last_updated, notes, updated FROM jobs WHERE is_deleted = 0 ORDER BY last_updated DESC")
         jobs = cursor.fetchall()
         conn.close()
 
@@ -460,9 +450,9 @@ class HomeScreen(ctk.CTk):
         existing_job_ids = set(self.job_rows.keys())
 
         for job in jobs:
-            (job_id, company, position, status, app_date, last_updated, notes, updated, nlp_company, nlp_position, is_user_added) = job
+            (job_id, company, position, status, app_date, last_updated, notes, updated) = job
             if job_id not in self.job_rows:
-                self.add_job_row(job_id, company, position, status, app_date, last_updated, notes, updated, nlp_company, nlp_position, is_user_added)
+                self.add_job_row(job_id, company, position, status, app_date, last_updated, notes, updated)
                 logging.info(f"Added job with ID {job_id}")
             else:
                 self.update_job_row(job_id, "company", company)
@@ -471,9 +461,6 @@ class HomeScreen(ctk.CTk):
                 self.update_job_row(job_id, "application_date", app_date)
                 self.update_job_row(job_id, "last_updated", last_updated)
                 self.update_job_row(job_id, "updated", updated)
-                self.update_job_row(job_id, "nlp_company", nlp_company)
-                self.update_job_row(job_id, "nlp_position", nlp_position)
-                self.update_job_row(job_id, "is_user_added", is_user_added)
                 logging.info(f"Updated job with ID {job_id}")
             # Once added or updated, remove from set
             existing_job_ids.discard(job_id)
@@ -486,7 +473,7 @@ class HomeScreen(ctk.CTk):
         logging.info("Job list refreshed.")
         self.update_sync_time()
 
-    def add_job_row(self, job_id, company, position, status, app_date, last_updated, notes, updated, nlp_company, nlp_position, is_user_added):
+    def add_job_row(self, job_id, company, position, status, app_date, last_updated, notes, updated):
         """Add a new job row to the UI."""
         row = self.next_row
         self.next_row += 1
@@ -532,7 +519,7 @@ class HomeScreen(ctk.CTk):
         last_updated_label.grid(row=row, column=4, padx=5, pady=(10, 2), sticky="ew")
 
         # Notes
-        notes_button = ctk.CTkButton(self.jobs_frame, text="Notes", width=50, command=lambda j=job_id, n=notes: self.open_notes(j, n))
+        notes_button = ctk.CTkButton(self.jobs_frame, text="Content", width=50, command=lambda j=job_id, n=notes: self.open_notes(j, n))
         notes_button.grid(row=row, column=5, padx=5, pady=(10, 2))
         
         # Delete Button
@@ -550,9 +537,6 @@ class HomeScreen(ctk.CTk):
             "last_updated": last_updated_label,
             "notes": notes_button,
             "delete": delete_button,
-            "nlp_company": nlp_company,
-            "nlp_position": nlp_position,
-            "is_user_added": is_user_added
         }
 
     def update_status_color(self, dropdown, status):
