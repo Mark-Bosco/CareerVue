@@ -107,7 +107,7 @@ class HomeScreen(ctk.CTk):
             with open("user_preferences.json", "r") as f:
                 self.preferences = json.load(f)
         except FileNotFoundError:
-            self.preferences = {"auto_check_interval": 6000}
+            self.preferences = {"auto_check_interval": 1}
             self.save_preferences()
     
     def save_preferences(self):
@@ -121,9 +121,9 @@ class HomeScreen(ctk.CTk):
         self.preferences_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
 
         # Auto-check interval preference
-        ctk.CTkLabel(self.preferences_frame, text="Auto-check interval (minutes):").grid(row=1, column=0, padx=5, pady=5)
+        ctk.CTkLabel(self.preferences_frame, text="Auto-check interval (hours):").grid(row=1, column=0, padx=5, pady=5)
         self.auto_check_entry = ctk.CTkEntry(self.preferences_frame, width=50)
-        self.auto_check_entry.insert(0, str(self.preferences["auto_check_interval"] // 60))
+        self.auto_check_entry.insert(0, str(self.preferences["auto_check_interval"]))
         self.auto_check_entry.grid(row=1, column=1, padx=5, pady=5)
 
         # Save preferences button
@@ -133,8 +133,8 @@ class HomeScreen(ctk.CTk):
     def save_preferences_callback(self):
         """Save user preferences and update the email watcher."""
         try:
-            self.preferences["sync_days"] = int(self.sync_days_entry.get())
-            self.preferences["auto_check_interval"] = int(self.auto_check_entry.get()) * 60
+            #self.preferences["sync_days"] = int(self.sync_days_entry.get())
+            self.preferences["auto_check_interval"] = int(self.auto_check_entry.get())
             self.save_preferences()
             
             # Restart the email watcher with new preferences
@@ -143,7 +143,7 @@ class HomeScreen(ctk.CTk):
             
             CTkMessagebox(title="Success", message="Preferences saved successfully!", icon="info")
         except ValueError:
-            CTkMessagebox(title="Error", message="Please enter valid numbers for sync days and auto-check interval.", icon="cancel")
+            CTkMessagebox(title="Error", message="Please enter a valid number for the auto-check interval.", icon="cancel")
 
     def setup_logging(self):
         """Configure logging for the app."""
@@ -322,7 +322,8 @@ class HomeScreen(ctk.CTk):
                 logging.error(f"An error occurred: {e}")
                 self.after(0, self.status_indicator.configure(text_color="red"))
             finally:
-                 time.sleep(self.preferences["auto_check_interval"])
+                 # Seconds
+                 time.sleep(self.preferences["auto_check_interval"] * 3600)
         
     def load_sync_time(self):
         """Get the last checked time from the file."""
@@ -401,7 +402,6 @@ class HomeScreen(ctk.CTk):
             widget.insert(0, self.get_original_value(job_id, field))
         else:
             self.update_job(job_id, field, value)
-            logging.info(f"Updated job {job_id} field {field} to {value}")
 
     def get_original_value(self, job_id, field):
         """Retrieve the original value of a field from the database."""
@@ -461,7 +461,7 @@ class HomeScreen(ctk.CTk):
                 self.update_job_row(job_id, "application_date", app_date)
                 self.update_job_row(job_id, "last_updated", last_updated)
                 self.update_job_row(job_id, "updated", updated)
-                logging.info(f"Updated job with ID {job_id}")
+                logging.info(f"Checked job with ID {job_id} for update")
             # Once added or updated, remove from set
             existing_job_ids.discard(job_id)
 
@@ -567,9 +567,7 @@ class HomeScreen(ctk.CTk):
                     self.job_rows[job_id]["update_indicator"].grid_remove()
             else:
                 logging.warning(f"Warning: Unhandled field '{field}' in update_job_row")
-
-        logging.info(f"Updated job ID {job_id} field {field} to {value}")
-
+                
     def clear_update_indicator(self, job_id):
         """Clear the update indicator for a job."""
         conn = sqlite3.connect("job_applications.db")

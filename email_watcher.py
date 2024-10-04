@@ -43,11 +43,16 @@ class EmailWatcher:
             for num in search_data[0].split():
                 try:
                     _, data = self.mail.fetch(num, '(RFC822)')
-                    raw_email = data[0][1]
-                    email_message = email.message_from_bytes(raw_email)
-                    yield num, email_message
+                    if data and isinstance(data[0], tuple):
+                        raw_email = data[0][1]
+                        email_message = email.message_from_bytes(raw_email)
+                        yield num, email_message
+                    else:
+                        logging.warning(f"Unexpected data format for email {num}: {data}")
+                except imaplib.IMAP4.error as e:
+                    logging.error(f"IMAP4 error fetching email {num}: {e}")
                 except Exception as e:
-                    logging.error(f"Error fetching email {num}: {e}")
+                    logging.error(f"Unexpected error fetching email {num}: {e}")
         except imaplib.IMAP4.error as e:
             logging.error(f"IMAP4 error during fetch: {e}")
         except Exception as e:
@@ -109,12 +114,26 @@ class EmailWatcher:
                     "status": result['application_status'],
                     "date": email_data["date"].strftime("%Y-%m-%d"),
                     "notes": result['email_content'],
+                    "job_related": True
                 }
             else:
-                return None
+                return {
+                    "job_related": False
+                }
         except json.JSONDecodeError:
             logging.error(f"Error decoding JSON from ChatGPT: {parsed_result}")
             return None
+        
+    def archive_email(self, email_id):
+        """Archive the email by deleting it from the inbox and expunging."""
+        try:
+            self.mail.store(email_id, '+FLAGS', '\\Deleted')
+            self.mail.expunge()
+            logging.debug(f"Not job-related. Archived email {email_id}")
+        except imaplib.IMAP4.error as e:
+            logging.error(f"IMAP4 error archiving email {email_id}: {e}")
+        except Exception as e:
+            logging.error(f"Unexpected error archiving email {email_id}: {e}")
 
     @backoff.on_exception(backoff.expo, sqlite3.Error, max_tries=3)
     def update_database(self, job_data):
@@ -170,15 +189,22 @@ class EmailWatcher:
 
     def process_email(self, email_id, email_message):
         """Process a single email message."""
-        email_data = self.parse_email(email_message)
-        if email_data:
-            job_data = self.interpret_email(email_data)
-            if job_data:
-                self.update_database(job_data)
+        try:
+            email_data = self.parse_email(email_message)
+            if email_data:
+                job_data = self.interpret_email(email_data)
+                if job_data:
+                    if job_data.get("job_related", False):
+                        self.update_database(job_data)
+                        logging.debug(f"Processed job-related email {email_id}")
+                    else:
+                        self.archive_email(email_id)
+                else:
+                    logging.warning(f"Failed to interpret email {email_id}")
             else:
-                logging.debug(f"Email {email_id} not interpreted as job-related")
-        else:
-            logging.warning(f"Failed to parse email {email_id}")
+                logging.warning(f"Failed to parse email {email_id}")
+        except Exception as e:
+            logging.error(f"Error processing email {email_id}: {e}")
 
     def run(self, last_checked):
         """Main method to run the email watcher."""
