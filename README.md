@@ -12,13 +12,13 @@
 [![CustomTkinter](https://img.shields.io/badge/CustomTkinter-5.1.2-orange)](https://github.com/TomSchimansky/CustomTkinter)
 [![SQLite](https://img.shields.io/badge/SQLite-3-green)](https://www.sqlite.org/index.html)
 
-CareerVue is a sophisticated, AI-powered job application tracking system designed to streamline your job search process. Built with Python and leveraging advanced NLP techniques, CareerVue offers a seamless experience for managing your job applications, from initial submission to final offer.
+CareerVue is a sophisticated, AI-powered job application tracking system designed to streamline your job search process. Built with Python and leveraging advanced AI, CareerVue offers a seamless experience for managing your job applications, from initial submission to final offer.
 
 ## 🌟 Features
 
 ### 🤖 Intelligent Email Integration
 - Automatically scans and categorizes job-related emails
-- Uses Natural Language Processing (NLP) to extract key information
+- Uses generative AI to extract key information
 - Supports major email providers through IMAP
 
 ### 📊 Intuitive User Interface

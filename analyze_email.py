@@ -40,7 +40,7 @@ def analyze_email(email_content):
     - Remove or replace problematic characters like emojis or special characters
     - Preserve all original line breaks using \\n
     - Add an extra line break (\\n\\n) before and after the main body of the email
-    - Do not return HTML or any other formatting, just plain text
+    - Do not return HTML or any other format, only plain text
 
     If you cannot determine any piece of information, use "Unknown" for that field.
     Ensure the JSON is valid and can be parsed directly. Do not include any markdown formatting or explanation outside the JSON object.
