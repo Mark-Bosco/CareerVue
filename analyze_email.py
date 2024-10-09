@@ -33,13 +33,15 @@ def analyze_email(email_content):
     }}
 
     For the job_position field only extract the job title, not the department, location, level, or any other information.
+    Ensure the job_position is set to a real job title, not a generic term like "internship" or "job" or something that is not a job title.
     For application_status, use only one of these values: "Applied", "Interview", "Offered", "Rejected".
     If a job-related email mentions completing an assessment, set the application_status to "Applied".
     
-    For email_content, include the entire email formatted as follows:
+    For email_content, format the body's content in a standardized way as follows:
     - Remove or replace problematic characters like emojis or special characters
-    - Preserve all original line breaks using \\n
+    - Add line breaks between all sentences using \\n
     - Add an extra line break (\\n\\n) before and after the main body of the email
+    - Do not indent anything (no extra spaces at the beginning of lines)
     - Do not return HTML or any other format, only plain text
 
     If the email is not related to a job application, make sure all fields are set to null.

@@ -123,19 +123,29 @@ class EmailWatcher:
 
     def interpret_email(self, email_data):
         """Interpret the email content using the ChatGPT parser."""
-        email_content = f"Subject: {email_data['subject']}\n\n{email_data['body']}"
+        email_content = (
+            f"Subject: {email_data['subject']}\n\n"
+            f"Body: {email_data['body']}"
+        )
         parsed_result = analyze_email(email_content)
         
         try:
             result = json.loads(parsed_result)
             
             if result['application_status'] is not None:
+                formatted_content = (
+                    f"From: {email_data['sender']}\n"
+                    f"Subject: {email_data['subject']}\n"
+                    f"Date: {email_data['date'].strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"{result['email_content']}\n"
+                    f"{'-' * 200}\n"
+                )
                 return {
                     "company": result['company_name'] or "Unknown",
                     "position": result['job_position'] or "Unknown",
                     "status": result['application_status'] or "Unknown",
                     "date": email_data["date"].strftime("%Y-%m-%d"),
-                    "notes": result['email_content'] or "",
+                    "content": formatted_content,
                     "job_related": True
                 }
             else:
@@ -177,24 +187,24 @@ class EmailWatcher:
                 if job_data["status"] != current_status:
                     cursor.execute("""
                         UPDATE jobs 
-                        SET status = ?, last_updated = ?, notes = notes || '\n\n' || ?, updated = 1
+                        SET status = ?, last_updated = ?, content = content || '\n\n' || ?, updated = 1
                         WHERE id = ?
-                    """, (job_data["status"], job_data["date"], job_data["notes"], job_id))
+                    """, (job_data["status"], job_data["date"], job_data["content"], job_id))
                 else:
                     cursor.execute("""
                         UPDATE jobs 
-                        SET last_updated = ?, notes = notes || '\n\n' || ?
+                        SET last_updated = ?, content = content || '\n\n' || ?
                         WHERE id = ?
-                    """, (job_data["date"], job_data["notes"], job_id))
+                    """, (job_data["date"], job_data["content"], job_id))
                 
                 logging.debug(f"Updated existing job: {job_data['company']} - {job_data['position']}")
             else:
                 # Insert new job
                 cursor.execute("""
-                    INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated) 
+                    INSERT INTO jobs (company, position, status, application_date, last_updated, content, updated) 
                     VALUES (?, ?, ?, ?, ?, ?, 1)
                 """, (job_data["company"], job_data["position"], job_data["status"], job_data["date"], 
-                      job_data["date"], job_data["notes"]))
+                      job_data["date"], job_data["content"]))
                 job_id = cursor.lastrowid
                 logging.debug(f"Inserted new job: {job_data['company']} - {job_data['position']}")
 
@@ -230,7 +240,7 @@ class EmailWatcher:
         """Main method to run the email watcher."""
         try:
             if self.connect():
-                logging.debug(f"Starting to fetch new emails since {last_checked}")
+                logging.debug(f"Fetching all new emails since {last_checked}")
                 emails = self.fetch_new_emails(last_checked)
                 
                 for uid, email_message in emails:

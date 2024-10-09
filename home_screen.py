@@ -8,7 +8,7 @@ import threading
 import json
 import os
 from email_watcher import EmailWatcher
-from notes_window import NotesWindow
+from content_window import ContentWindow
 from email_config_dialog import EmailConfigDialog
 from database_setup import initialize_database
 
@@ -231,7 +231,7 @@ class HomeScreen(ctk.CTk):
         self.jobs_frame = ctk.CTkScrollableFrame(self.main_frame)
         self.jobs_frame.grid(row=0, column=0, sticky="nsew")
         self.jobs_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
-        # Set fixed width for Notes and Delete columns
+        # Set fixed width for content and Delete columns
         self.jobs_frame.grid_columnconfigure((5, 6), weight=0)
 
         headers = ["Company","Position","Status","Application Date","Last Updated","",""]
@@ -239,7 +239,7 @@ class HomeScreen(ctk.CTk):
         for i, header in enumerate(headers):
             label = ctk.CTkLabel(self.jobs_frame, text=header, font=ctk.CTkFont(size=16, weight="bold"))
             label.grid(row=0, column=i, padx=5, pady=(5, 10), sticky="ew")
-            # Center text for all columns except Notes and Delete
+            # Center text for all columns except content and Delete
             if i < 5:  
                 label.configure(anchor="center")
 
@@ -351,7 +351,7 @@ class HomeScreen(ctk.CTk):
         current_date = datetime.now().strftime("%Y-%m-%d")
         
         cursor.execute(
-            """INSERT INTO jobs (company, position, status, application_date, last_updated, notes, updated, is_deleted) 
+            """INSERT INTO jobs (company, position, status, application_date, last_updated, content, updated, is_deleted) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             ("New Company", "New Position", "Applied", current_date, current_date, "", 0, 0)
         )
@@ -423,7 +423,7 @@ class HomeScreen(ctk.CTk):
             
             conn.commit()
             self.update_job_row(job_id, field, value)
-            if field != "notes":
+            if field != "content":
                 self.update_job_row(job_id, "last_updated", current_date)
             if field == "status":
                 self.update_status_color(self.job_rows[job_id]["status"], value)
@@ -434,15 +434,15 @@ class HomeScreen(ctk.CTk):
         finally:
             conn.close()
 
-    def open_notes(self, job_id, notes):
-        """Open the notes window for a specific job."""
-        NotesWindow(self, job_id, notes)
+    def open_content(self, job_id, content):
+        """Open the content window for a specific job."""
+        ContentWindow(self, job_id, content)
 
     def refresh_jobs(self):
         """Refresh the job list from the database, excluding deleted jobs."""
         conn = sqlite3.connect("job_applications.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT id, company, position, status, application_date, last_updated, notes, updated FROM jobs WHERE is_deleted = 0 ORDER BY last_updated DESC")
+        cursor.execute("SELECT id, company, position, status, application_date, last_updated, content, updated FROM jobs WHERE is_deleted = 0 ORDER BY last_updated DESC")
         jobs = cursor.fetchall()
         conn.close()
 
@@ -450,9 +450,9 @@ class HomeScreen(ctk.CTk):
         existing_job_ids = set(self.job_rows.keys())
 
         for job in jobs:
-            (job_id, company, position, status, app_date, last_updated, notes, updated) = job
+            (job_id, company, position, status, app_date, last_updated, content, updated) = job
             if job_id not in self.job_rows:
-                self.add_job_row(job_id, company, position, status, app_date, last_updated, notes, updated)
+                self.add_job_row(job_id, company, position, status, app_date, last_updated, content, updated)
                 logging.info(f"Added job with ID {job_id}")
             else:
                 self.update_job_row(job_id, "company", company)
@@ -473,7 +473,7 @@ class HomeScreen(ctk.CTk):
         logging.info("Job list refreshed.")
         self.update_sync_time()
 
-    def add_job_row(self, job_id, company, position, status, app_date, last_updated, notes, updated):
+    def add_job_row(self, job_id, company, position, status, app_date, last_updated, content, updated):
         """Add a new job row to the UI."""
         row = self.next_row
         self.next_row += 1
@@ -518,9 +518,9 @@ class HomeScreen(ctk.CTk):
         last_updated_label = ctk.CTkLabel(self.jobs_frame, text=last_updated, width=100)
         last_updated_label.grid(row=row, column=4, padx=5, pady=(10, 2), sticky="ew")
 
-        # Notes
-        notes_button = ctk.CTkButton(self.jobs_frame, text="Content", width=50, command=lambda j=job_id, n=notes: self.open_notes(j, n))
-        notes_button.grid(row=row, column=5, padx=5, pady=(10, 2))
+        # Content
+        content_button = ctk.CTkButton(self.jobs_frame, text="Content", width=50, command=lambda j=job_id, c=content: self.open_content(j, c))
+        content_button.grid(row=row, column=5, padx=5, pady=(10, 2))
         
         # Delete Button
         delete_button = ctk.CTkButton(self.jobs_frame, text="✕", width=30, height=30,fg_color="red", hover_color="dark red", command=lambda j=job_id: self.delete_job(j))
@@ -535,7 +535,7 @@ class HomeScreen(ctk.CTk):
             "status": status_dropdown,
             "application_date": app_date_entry,
             "last_updated": last_updated_label,
-            "notes": notes_button,
+            "content": content_button,
             "delete": delete_button,
         }
 
@@ -557,8 +557,8 @@ class HomeScreen(ctk.CTk):
                     logging.warning(f"Field '{field}' not found in job_rows for job_id {job_id}")
             elif field == "status":
                 self.job_rows[job_id]["status"].set(value)
-            elif field == "notes":
-                # We don't need to update the UI for notes, as it's handled in a separate window
+            elif field == "content":
+                # We don't need to update the UI for content, as it's handled in a separate window
                 pass
             elif field == "updated":
                 if value:

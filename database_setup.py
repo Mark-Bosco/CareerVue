@@ -34,7 +34,7 @@ def initialize_database():
         status TEXT NOT NULL,
         application_date TEXT,
         last_updated TEXT,
-        notes TEXT,
+        content TEXT,
         updated INTEGER DEFAULT 0,
         is_deleted INTEGER DEFAULT 0
     );

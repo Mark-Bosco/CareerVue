@@ -6,3 +6,4 @@
 - Update README
 - Revamp email content field and notes
 - Option to recheck entire inbox (allow use to pick custom start check date)
+- Improve performance (saving user_prefs, loading emails, etc)
