@@ -193,7 +193,7 @@ class HomeScreen(ctk.CTk):
 
         # Add last sync time label
         self.last_sync_label = ctk.CTkLabel(
-            self.top_frame, text="Last sync: Never", font=("Arial", 12)
+            self.top_frame, text="Last sync: Now", font=("Arial", 12)
         )
         self.last_sync_label.grid(
             row=1, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="w"

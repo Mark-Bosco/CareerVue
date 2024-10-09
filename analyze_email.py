@@ -13,28 +13,28 @@ def analyze_email(email_content):
     Analyze the following email content and determine if it's related to a user's job application.
 
     The email must be a confirmation, rejection, interview invite, or offer from a company regarding a user's job application.
-    An email from a service like Handshake that simply contains information about a job opening or a career fair or lists job postings is not considered a user's job application email. 
+    An email from a service like Handshake that contains information about a job opening or a career fair or asks the user to apply or lists job postings is not considered a user's job application email. 
+
     
     If you determine the email is not related to a user's job application, respond with the following JSON exactly:
     {{
-        "job_related": false,
-        "company_name": "Unknown",
-        "job_position": "Unknown",
-        "application_status": "Unknown",
-        "email_content": "Unknown"
+        "company_name": null,
+        "job_position": null,
+        "application_status": null,
+        "email_content": null
     }}
 
     If you determine the email is related to a user's job application, extract the following information and respond with this JSON format:
     {{
-        "job_related": true,
-        "company_name": "String",
-        "job_position": "String",
-        "application_status": "String",
-        "email_content": "String"
+        "company_name": String,
+        "job_position": String,
+        "application_status": String,
+        "email_content": String
     }}
 
     For the job_position field only extract the job title, not the department, location, level, or any other information.
     For application_status, use only one of these values: "Applied", "Interview", "Offered", "Rejected".
+    If a job-related email mentions completing an assessment, set the application_status to "Applied".
     
     For email_content, include the entire email formatted as follows:
     - Remove or replace problematic characters like emojis or special characters
@@ -42,6 +42,7 @@ def analyze_email(email_content):
     - Add an extra line break (\\n\\n) before and after the main body of the email
     - Do not return HTML or any other format, only plain text
 
+    If the email is not related to a job application, make sure all fields are set to null.
     If you cannot determine any piece of information, use "Unknown" for that field.
     Ensure the JSON is valid and can be parsed directly. Do not include any markdown formatting or explanation outside the JSON object.
 

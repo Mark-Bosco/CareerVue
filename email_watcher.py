@@ -36,27 +36,34 @@ class EmailWatcher:
 
     def fetch_new_emails(self, last_checked):
         """Fetch new emails from the inbox since the last checked time."""
+        emails = []
         try:
             self.mail.select(self.inbox)
             date_string = last_checked.strftime("%d-%b-%Y")
-            _, search_data = self.mail.search(None, f'(SINCE "{date_string}")')
-            for num in search_data[0].split():
+            _, search_data = self.mail.uid('search', None, f'(SINCE "{date_string}")')
+            email_uids = search_data[0].split()
+            
+            for uid in email_uids:
                 try:
-                    _, data = self.mail.fetch(num, '(RFC822)')
+                    _, data = self.mail.uid('fetch', uid, '(RFC822)')
                     if data and isinstance(data[0], tuple):
                         raw_email = data[0][1]
                         email_message = email.message_from_bytes(raw_email)
-                        yield num, email_message
+                        emails.append((uid, email_message))
                     else:
-                        logging.warning(f"Unexpected data format for email {num}: {data}")
+                        logging.warning(f"Unexpected data format for email UID {uid}: {data}")
                 except imaplib.IMAP4.error as e:
-                    logging.error(f"IMAP4 error fetching email {num}: {e}")
+                    logging.error(f"IMAP4 error fetching email UID {uid}: {e}")
                 except Exception as e:
-                    logging.error(f"Unexpected error fetching email {num}: {e}")
+                    logging.error(f"Unexpected error fetching email UID {uid}: {e}")
+            
+            return emails
         except imaplib.IMAP4.error as e:
             logging.error(f"IMAP4 error during fetch: {e}")
         except Exception as e:
             logging.error(f"Unexpected error during fetch: {e}")
+        
+        return emails  # Return empty list if any error occurred
 
     def parse_email(self, email_message):
         """Parse an email message and extract relevant information."""
@@ -84,11 +91,25 @@ class EmailWatcher:
         try:
             decoded_header, encoding = decode_header(header)[0]
             if isinstance(decoded_header, bytes):
-                return decoded_header.decode(encoding or "utf-8", errors="replace")
+                if encoding is None:
+                    # Try common encodings if no encoding is specified
+                    for enc in ['utf-8', 'latin-1', 'ascii']:
+                        try:
+                            return decoded_header.decode(enc)
+                        except UnicodeDecodeError:
+                            continue
+                    # If all attempts fail, decode with 'utf-8' and replace invalid characters
+                    return decoded_header.decode('utf-8', errors='replace')
+                elif encoding.lower() == 'unknown-8bit':
+                    # Handle 'unknown-8bit' encoding
+                    return decoded_header.decode('utf-8', errors='replace')
+                else:
+                    return decoded_header.decode(encoding)
             return decoded_header
         except Exception as e:
             logging.error(f"Error decoding header: {e}")
-            return ""
+            # Return the original header if decoding fails
+            return header
 
     def decode_payload(self, part):
         """Decode email payload."""
@@ -107,13 +128,14 @@ class EmailWatcher:
         
         try:
             result = json.loads(parsed_result)
-            if result['job_related']:
+            
+            if result['application_status'] is not None:
                 return {
-                    "company": result['company_name'],
-                    "position": result['job_position'],
-                    "status": result['application_status'],
+                    "company": result['company_name'] or "Unknown",
+                    "position": result['job_position'] or "Unknown",
+                    "status": result['application_status'] or "Unknown",
                     "date": email_data["date"].strftime("%Y-%m-%d"),
-                    "notes": result['email_content'],
+                    "notes": result['email_content'] or "",
                     "job_related": True
                 }
             else:
@@ -187,35 +209,55 @@ class EmailWatcher:
             if conn:
                 conn.close()
 
-    def process_email(self, email_id, email_message):
+    def process_email(self, uid, email_message):
         """Process a single email message."""
         try:
             email_data = self.parse_email(email_message)
             if email_data:
                 job_data = self.interpret_email(email_data)
                 if job_data:
-                    if job_data.get("job_related", False):
-                        self.update_database(job_data)
-                        logging.debug(f"Processed job-related email {email_id}")
-                    else:
-                        self.archive_email(email_id)
+                    return job_data
                 else:
-                    logging.warning(f"Failed to interpret email {email_id}")
+                    logging.warning(f"Failed to interpret email UID {uid}")
             else:
-                logging.warning(f"Failed to parse email {email_id}")
+                logging.warning(f"Failed to parse email UID {uid}")
         except Exception as e:
-            logging.error(f"Error processing email {email_id}: {e}")
+            logging.error(f"Error processing email UID {uid}: {e}")
+        
+        return None
 
     def run(self, last_checked):
         """Main method to run the email watcher."""
         try:
             if self.connect():
                 logging.debug(f"Starting to fetch new emails since {last_checked}")
-                for email_id, email_message in self.fetch_new_emails(last_checked):
+                emails = self.fetch_new_emails(last_checked)
+                
+                for uid, email_message in emails:
                     if self.stop_flag:
                         break
-                    logging.debug(f"Processing email {email_id}")
-                    self.process_email(email_id, email_message)
+                    logging.debug(f"Processing email UID {uid}")
+                    
+                    # Process the email and get the result
+                    job_data = self.process_email(uid, email_message)
+                    
+                    if job_data:
+                        if job_data["job_related"]:
+                            # If job-related, update the database but don't archive
+                            self.update_database(job_data)
+                            logging.debug(f"Processed job-related email UID {uid}")
+                        else:
+                            # If not job-related, archive the email
+                            try:
+                                self.mail.uid('store', uid, '+FLAGS', '\\Deleted')
+                                logging.debug(f"Not job-related. Archived email UID {uid}")
+                            except imaplib.IMAP4.error as e:
+                                logging.error(f"Error archiving email UID {uid}: {e}")
+                    else:
+                        logging.warning(f"Failed to process email UID {uid}")
+                
+                # Expunge deleted messages
+                self.mail.expunge()
                 logging.debug("Finished processing emails")
         except imaplib.IMAP4.error as e:
             logging.error(f"IMAP4 error: {e}")
